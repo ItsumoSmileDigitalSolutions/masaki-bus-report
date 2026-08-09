@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>[ver24] ひまわりバス再編案 - インタラクティブ地図</title>
+<title>[ver25] ひまわりバス再編案 - インタラクティブ地図</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.5/dist/leaflet-routing-machine.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -694,7 +694,7 @@ cautionSegmentsData.forEach(seg => {
     '<b>OSM分類:</b> ' + seg.highway + '<br>' +
     '<b>判定:</b> ' + seg.status + '<br>' +
     '<span style="font-size:11px; color:#666;">実車試走・道路台帳での確認を推奨</span>',
-    POPUP_OPTS
+    {autoPan: false, closeOnClick: true}
   );
   line.addTo(cautionRoadsLayer);
   // 中間点に警告バッジ
