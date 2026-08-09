@@ -1,0 +1,1059 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>[ver24] ひまわりバス再編案 - インタラクティブ地図</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.5/dist/leaflet-routing-machine.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-routing-machine@3.2.5/dist/leaflet-routing-machine.js"></script>
+<style>
+  body { font-family: 'BIZ UDPGothic', 'Hiragino Sans', sans-serif; margin: 0; padding: 0; background: #f5f5f5; }
+  #header { background: #17406D; color: white; padding: 12px 20px; }
+  #header h1 { margin: 0; font-size: 18px; font-weight: bold; }
+  #header p { margin: 4px 0 0 0; font-size: 12px; opacity: 0.9; }
+  #controls { background: white; padding: 10px 20px; border-bottom: 1px solid #ddd; }
+  .toggle-btn { display: inline-block; padding: 6px 16px; margin-right: 8px; background: #f0f0f0; border: 1px solid #ccc; cursor: pointer; font-size: 13px; border-radius: 4px; }
+  .toggle-btn.active { background: #17406D; color: white; border-color: #17406D; font-weight: bold; }
+  #map { height: calc(100vh - 288px); width: 100%; }
+  .legend { background: white; padding: 12px 14px; border-radius: 6px; box-shadow: 0 1px 6px rgba(0,0,0,0.25); font-size: 12px; line-height: 1.6; max-width: 260px; }
+  .legend .item { display: flex; align-items: center; margin: 4px 0; }
+  .legend .swatch { width: 20px; height: 4px; margin-right: 8px; }
+  .legend .marker { width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; border: 2px solid white; box-shadow: 0 0 2px rgba(0,0,0,0.3); }
+  .popup-content { font-size: 12px; line-height: 1.5; }
+  .popup-content b { color: #17406D; font-size: 13px; }
+  .popup-content .badge { display: inline-block; padding: 2px 6px; background: #DBEFF9; color: #17406D; border-radius: 3px; font-size: 11px; margin-top: 4px; }
+  .popup-content .badge-red { background: #FFE0E0; color: #D32F2F; }
+  .popup-content .badge-new { background: #FFE8CC; color: #D32F2F; font-weight: bold; }
+  .stop-label { background: rgba(255,255,255,0.9); border: 1px solid #999; color: #333; padding: 1px 5px; border-radius: 3px; font-size: 10px; white-space: nowrap; box-shadow: 0 1px 2px rgba(0,0,0,0.15); }
+  .stop-label-key { background: #DBEFF9; border: 1.5px solid #17406D; color: #17406D; padding: 1px 6px; border-radius: 3px; font-size: 11px; font-weight: bold; white-space: nowrap; box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+  .stop-label-new { background: #FFF3E0; border: 2px solid #D32F2F; color: #D32F2F; padding: 1px 6px; border-radius: 3px; font-size: 12px; font-weight: bold; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,0.25); }
+  .stop-label-mayor { background: #E8F5E9; border: 2px solid #2E7D32; color: #2E7D32; padding: 1px 6px; border-radius: 3px; font-size: 12px; font-weight: bold; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,0.25); }
+  .leaflet-tooltip { box-shadow: none; }
+  .bubble-label { background: transparent; border: none; color: #fff; padding: 0; font-size: 13px; font-weight: bold; text-shadow: 0 0 3px rgba(0,0,0,0.7), 0 0 5px rgba(0,0,0,0.5); white-space: nowrap; box-shadow: none; }
+  .ooaza-hover-tip { background: rgba(255,255,255,0.95); border: 1px solid #17406D; color: #222; padding: 6px 10px; border-radius: 5px; font-size: 12px; line-height: 1.5; box-shadow: 0 2px 6px rgba(0,0,0,0.25); }
+  .demand-label { background: transparent; border: none; color: #fff; padding: 0; font-size: 12px; font-weight: bold; text-shadow: 0 0 3px rgba(0,0,0,0.7), 0 0 5px rgba(0,0,0,0.5); white-space: nowrap; box-shadow: none; }
+  .leaflet-tooltip-left::before, .leaflet-tooltip-right::before, .leaflet-tooltip-top::before, .leaflet-tooltip-bottom::before { display: none; }
+  /* body/html だけ overflow:hidden にする（親ページへのscroll伝播を防ぐ） */
+  html, body { overflow: hidden !important; margin:0; padding:0; height:100%; }
+  /* Leafletのパン制御は Leaflet 自身に任せる（pane側は触らない → 停留所名/マーカー表示のため） */
+</style>
+</head>
+<body>
+<div id="header">
+  <h1>松前町ひまわりバス - ルート再編案 (インタラクティブ地図)</h1>
+  <p>公式マップ座標データ (東28+西28停留所) ＋ 住民要望調査 (n=625) ＋ 85日間乗降実測データ ｜ イツモスマイルデジタルソリューションズ</p>
+</div>
+<div id="ctrl-collapse-bar" onclick="toggleControls()" title="クリックで操作パネルを開閉">
+  <span id="ctrl-collapse-icon" class="collapse-icon">▲</span>
+  <span class="collapse-text-main" id="ctrl-collapse-text">操作パネルをたたんで地図を広く表示</span>
+  <span class="collapse-chevron" id="ctrl-collapse-chevron">▲ たたむ</span>
+</div>
+<div id="controls">
+  <!-- ① ルート案の選択 -->
+  <div class="ctrl-group">
+    <div class="ctrl-group-title">🚌 ルート案</div>
+    <div class="ctrl-row">
+      <span class="ctrl-label">現行</span>
+      <span class="toggle-btn tag-east active" data-layer="east" onclick="toggleLayer(this)">東コース</span>
+      <span class="toggle-btn tag-west active" data-layer="west" onclick="toggleLayer(this)">西コース</span>
+    </div>
+    <div class="ctrl-row">
+      <span class="ctrl-label">再編A（効率型）</span>
+      <span class="toggle-btn tag-prop-east" data-layer="prop-east" onclick="toggleLayer(this)">基幹東（ハイエース）</span>
+      <span class="toggle-btn tag-prop-west" data-layer="prop-west" onclick="toggleLayer(this)">基幹西（マイクロバス）</span>
+      <span class="ctrl-label" style="margin-left:12px;">再編B（網羅型）</span>
+      <span class="toggle-btn tag-full-east" data-layer="full-east" onclick="toggleLayer(this)">網羅東（ハイエース）</span>
+      <span class="toggle-btn tag-full-west" data-layer="full-west" onclick="toggleLayer(this)">網羅西（マイクロバス）</span>
+      <span class="ctrl-label" style="margin-left:12px;">町長希望</span>
+      <span class="toggle-btn tag-mayor" data-layer="mayor" onclick="toggleLayer(this)">町長希望ルート</span>
+    </div>
+    <div class="ctrl-row">
+      <span class="ctrl-label">4分割再編</span>
+      <span class="toggle-btn tag-r4-east" data-layer="r4-east" onclick="toggleLayer(this)">東（マイクロバス）</span>
+      <span class="toggle-btn tag-r4-west" data-layer="r4-west" onclick="toggleLayer(this)">主要施設循環（マイクロバス）</span>
+      <span class="toggle-btn tag-r4-west-genki" data-layer="r4-west-genki" onclick="toggleLayer(this)">主要施設＋元気人村</span>
+      <span class="toggle-btn tag-r4-north" data-layer="r4-north" onclick="toggleLayer(this)">北（ハイエース）</span>
+      <span class="toggle-btn tag-r4-south" data-layer="r4-south" onclick="toggleLayer(this)">南（ハイエース）</span>
+    </div>
+  </div>
+  <!-- ② データ・分析レイヤー -->
+  <div class="ctrl-group">
+    <div class="ctrl-group-title">📊 データ・分析</div>
+    <div class="ctrl-row">
+      <span class="ctrl-label">バス実測</span>
+      <span class="toggle-btn" data-layer="bubble" onclick="toggleLayer(this)">乗降客数バブル</span>
+      <span class="ctrl-label" style="margin-left:12px;">デマンドタクシー</span>
+      <span class="toggle-btn" data-layer="demand-on" onclick="toggleLayer(this)">乗車</span>
+      <span class="toggle-btn" data-layer="demand-off" onclick="toggleLayer(this)">降車</span>
+      <span class="toggle-btn" data-layer="demand-all" onclick="toggleLayer(this)">乗降計</span>
+      <span class="ctrl-label" style="margin-left:12px;">地区</span>
+      <span class="toggle-btn" data-layer="ooaza" onclick="toggleLayer(this)">大字ポリゴン</span>
+      <span class="ctrl-label" style="margin-left:12px;">道路幅診断</span>
+      <span class="toggle-btn tag-caution-roads" data-layer="caution-roads" onclick="toggleLayer(this)" style="background:#FFEBEE; color:#C62828; border-color:#EF5350;">⚠️ 要注意区間</span>
+    </div>
+  </div>
+  <!-- ③ プリセット・表示設定 -->
+  <div class="ctrl-group">
+    <div class="ctrl-group-title">⚡ プリセット・表示設定</div>
+    <div class="ctrl-row">
+      <span class="ctrl-label">プリセット</span>
+      <span class="toggle-btn" onclick="preset('current')">現行のみ</span>
+      <span class="toggle-btn" onclick="preset('proposed')">再編A</span>
+      <span class="toggle-btn" onclick="preset('full')">再編B</span>
+      <span class="toggle-btn" onclick="preset('mayor')">町長希望のみ</span>
+      <span class="toggle-btn" onclick="preset('r4')">4分割（全ルート）</span>
+      <span class="toggle-btn" onclick="preset('all')">全表示</span>
+    </div>
+    <div class="ctrl-row">
+      <span class="ctrl-label">表示設定</span>
+      <span class="toggle-btn active" id="stop-label-toggle" onclick="toggleStopLabels(this)">バス停名 ON</span>
+      <span class="toggle-btn" onclick="preset('stops-only')">バス停のみ（線なし）</span>
+      <span class="toggle-btn" id="reorg-stop-filter" onclick="toggleReorgStops(this)">再編バス停のみ</span>
+      <span style="font-size:11px; color:#999; margin-left:12px;">※ルート線は道路沿い(OSRM)・➤は巡回方向</span>
+    </div>
+  </div>
+</div>
+<style>
+  #controls { padding: 8px 16px !important; }
+  #ctrl-collapse-bar { background: linear-gradient(180deg,#1e508c,#17406D); color: #fff; display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 13px; font-weight: bold; padding: 9px 12px; cursor: pointer; user-select: none; border-bottom: 2px solid #0d2a4a; letter-spacing: 0.3px; transition: background 0.15s; }
+  #ctrl-collapse-bar:hover { background: linear-gradient(180deg,#2a63a8,#1e508c); }
+  #ctrl-collapse-bar:active { background: #12325a; }
+  .collapse-icon { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; background: rgba(255,255,255,0.18); border-radius: 50%; font-size: 12px; transition: transform 0.2s; }
+  .collapse-text-main { flex: 0 1 auto; }
+  .collapse-chevron { margin-left: auto; background: rgba(255,255,255,0.15); padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: normal; }
+  body.ctrl-collapsed .collapse-icon { transform: rotate(180deg); }
+  body.ctrl-collapsed #controls { display: none; }
+  body.ctrl-collapsed #map { height: calc(100vh - 122px) !important; }
+  .ctrl-group { background: #F7F9FC; border: 1px solid #E0E6EE; border-radius: 6px; padding: 6px 10px; margin-bottom: 6px; }
+  .ctrl-group-title { font-size: 12px; font-weight: bold; color: #17406D; margin-bottom: 4px; }
+  .ctrl-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 3px 0; }
+  .ctrl-label { font-size: 12px; color: #555; font-weight: bold; background: #E8EDF4; padding: 3px 8px; border-radius: 4px; white-space: nowrap; }
+  .toggle-btn { display: inline-block; padding: 5px 12px; background: #fff; border: 1px solid #ccc; cursor: pointer; font-size: 12px; border-radius: 4px; white-space: nowrap; }
+  .toggle-btn.active { background: #17406D; color: white; border-color: #17406D; font-weight: bold; }
+  .tag-east.active { background:#17406D !important; color:white !important; border-color:#17406D !important; }
+  .tag-west.active { background:#4A90D9 !important; color:white !important; border-color:#4A90D9 !important; }
+  .tag-prop-east.active { background:#B71C1C !important; color:white !important; border-color:#B71C1C !important; }
+  .tag-prop-west.active { background:#1B5E20 !important; color:white !important; border-color:#1B5E20 !important; }
+  .tag-full-east.active { background:#7B1FA2 !important; color:white !important; border-color:#7B1FA2 !important; }
+  .tag-full-west.active { background:#EF6C00 !important; color:white !important; border-color:#EF6C00 !important; }
+  .tag-mayor.active { background:#2E7D32 !important; color:white !important; border-color:#2E7D32 !important; }
+  .tag-r4-east.active { background:#C2185B !important; color:white !important; border-color:#C2185B !important; }
+  .tag-r4-west.active { background:#1565C0 !important; color:white !important; border-color:#1565C0 !important; }
+  .tag-r4-west-genki.active { background:#00897B !important; color:white !important; border-color:#00897B !important; }
+  .tag-r4-north.active { background:#6A1B9A !important; color:white !important; border-color:#6A1B9A !important; }
+  .tag-r4-south.active { background:#00838F !important; color:white !important; border-color:#00838F !important; }
+</style>
+<div id="map"></div>
+
+<script>
+const NAVY = '#17406D';
+const BLUE = '#0F6FC6';
+const LTBLUE = '#4A90D9';
+const GRAY = '#666666';
+const RED = '#D32F2F';
+const GREEN = '#42B37C';
+const PURPLE = '#C2185B';
+
+// === 親ページのスクロール強制固定（iframe埋め込み時の自動スクロール抑止） ===
+// 原因: Leafletが .leaflet-container に tabindex を付与しフォーカスさせるため、
+// iframe内でフォーカスが移動すると親ページが自動scrollIntoViewしてしまう。
+try {
+  if (window.parent && window.parent !== window) {
+    // 1) iframe自身のフォーカスを抑止（フォーカス移動を発生させない）
+    document.addEventListener('DOMContentLoaded', () => {
+      const c = document.querySelector('.leaflet-container');
+      if (c) {
+        c.removeAttribute('tabindex');
+        c.setAttribute('tabindex', '-1');
+      }
+    });
+    // 2) hashchangeを抑止
+    window.addEventListener('hashchange', (e) => { e.preventDefault(); e.stopPropagation(); });
+    // 3) 親ページに対する scrollIntoView 要求を無効化
+    Element.prototype.scrollIntoView = function() { /* no-op in iframe */ };
+    // 4) window.focus() も無効化（Leafletがcontainerにfocusしても親ページを動かさない）
+    const origFocus = HTMLElement.prototype.focus;
+    HTMLElement.prototype.focus = function(opts) {
+      // preventScroll:true で無理やり呼ぶ
+      try { return origFocus.call(this, {preventScroll: true}); }
+      catch(e) { return origFocus.call(this); }
+    };
+  }
+} catch(e) { /* cross-origin: ignore */ }
+
+const map = L.map('map', {
+  zoomControl: true,
+  scrollWheelZoom: true,
+  keyboard: false,          // キーボード操作でのフォーカス移動抑止
+  fadeAnimation: false,
+  zoomAnimation: true
+}).setView([33.789, 132.720], 13);
+
+// Leaflet作成後に念のため tabindex を除去
+const mapContainer = map.getContainer();
+mapContainer.removeAttribute('tabindex');
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors',
+  maxZoom: 19,
+}).addTo(map);
+
+// === 現行ルート 東コース (1便打刻時刻順・07:50-08:38) ===
+const currentEastStops = [
+  {name: '役場前', lat: 33.7871715, lng: 132.7111995},
+  {name: 'フィッタ前', lat: 33.7898357, lng: 132.7134244},
+  {name: '北伊予小学校前', lat: 33.7849420, lng: 132.7453600},
+  {name: '晴光院前', lat: 33.7845001, lng: 132.7422204},
+  {name: 'JA松山市鶴吉倉庫前', lat: 33.7850855, lng: 132.7386261},
+  {name: '北伊予踏切前', lat: 33.7851365, lng: 132.7482456},
+  {name: 'JR北伊予駅前', lat: 33.7874085, lng: 132.7498605},
+  {name: 'JA松山市北伊予支所前', lat: 33.7864497, lng: 132.7492261},
+  {name: '二名保育所前', lat: 33.7875812, lng: 132.7516024},
+  {name: '徳丸老人憩いの家前', lat: 33.7891562, lng: 132.7600075},
+  {name: '徳丸公園前', lat: 33.7885701, lng: 132.7570704},
+  {name: '徳丸常夜灯前', lat: 33.7909301, lng: 132.7613116},
+  {name: '徳丸集会所前', lat: 33.7928608, lng: 132.7586193},
+  {name: '徳丸水源地前', lat: 33.7943450, lng: 132.7561566},
+  {name: '中川原西', lat: 33.7983195, lng: 132.7532363},
+  {name: '中川原', lat: 33.7979968, lng: 132.7549494},
+  {name: '中川原踏切前', lat: 33.7980973, lng: 132.7484936},
+  {name: '大間集会所前', lat: 33.7980177, lng: 132.7370514},
+  {name: '白鶴保育園前', lat: 33.7985814, lng: 132.7330988},
+  {name: '上高柳集会所前', lat: 33.7985459, lng: 132.7303650},
+  {name: 'むかいだ小児科前', lat: 33.7985840, lng: 132.7258401},
+  {name: 'エミアミューズ前', lat: 33.7877525, lng: 132.7156600},
+  {name: 'エミフルまさき', lat: 33.7904127, lng: 132.7152259},
+  {name: '古泉駅前', lat: 33.7922658, lng: 132.7169768},
+  {name: '文化センター前', lat: 33.7864424, lng: 132.7118683},
+  {name: '福祉センター前', lat: 33.7873315, lng: 132.7130580},
+];
+
+// === 現行ルート 西コース (2便打刻時刻順・09:02-09:46) ===
+const currentWestStops = [
+  {name: '東古泉', lat: 33.7864964, lng: 132.7202030},
+  {name: 'JA松山市永田出張所前', lat: 33.7856085, lng: 132.7281679},
+  {name: '横田沖台橋', lat: 33.7789476, lng: 132.7292190},
+  {name: '大溝', lat: 33.7786854, lng: 132.7190051},
+  {name: '宗通寺前', lat: 33.7785658, lng: 132.7126390},
+  {name: '伊予スイミング前', lat: 33.7771257, lng: 132.7086439},
+  {name: '黒田保育所前', lat: 33.7771728, lng: 132.7062177},
+  {name: '武智酒造前', lat: 33.7788733, lng: 132.7035386},
+  {name: '松前小学校前', lat: 33.7825345, lng: 132.7034192},
+  {name: '夫婦橋', lat: 33.7873176, lng: 132.7023964},
+  {name: '中村酒店前', lat: 33.7858112, lng: 132.7027933},
+  {name: '大念寺前', lat: 33.7895293, lng: 132.7023253},
+  {name: '松前病院前', lat: 33.7911929, lng: 132.7013945},
+  {name: '東レ前', lat: 33.7935763, lng: 132.7013212},
+  {name: '塩谷南', lat: 33.7993595, lng: 132.7009491},
+  {name: '塩谷', lat: 33.8006340, lng: 132.7016000},
+  {name: '旧若葉保育園前', lat: 33.8007567, lng: 132.7119575},
+  {name: '北川原', lat: 33.8029252, lng: 132.7141567},
+  {name: 'しのざき医院前', lat: 33.8035587, lng: 132.7165140},
+  {name: '岡田小学校前', lat: 33.8040796, lng: 132.7213533},
+  {name: '木口内科前', lat: 33.8040366, lng: 132.7240952},
+  {name: '升田歯科前', lat: 33.8017295, lng: 132.7239718},
+  {name: '岡田駅前', lat: 33.7992340, lng: 132.7240714},
+  {name: 'エミフルまさき', lat: 33.7904127, lng: 132.7152259},
+  {name: 'フィッタ前', lat: 33.7898357, lng: 132.7134244},
+  {name: 'エミアミューズ前', lat: 33.7877525, lng: 132.7156600},
+  {name: '古泉駅前', lat: 33.7922658, lng: 132.7169768},
+  {name: '役場前', lat: 33.7871715, lng: 132.7111995},
+  {name: '福祉センター前', lat: 33.7873315, lng: 132.7130580},
+  {name: '文化センター前', lat: 33.7864424, lng: 132.7118683},
+];
+
+// === 新設バス停・要望箇所 ===
+const newStops = [
+  {name: 'フジ松前店 (新設候補)', lat: 33.7926292, lng: 132.7067192,              isNew: true},
+  {name: 'くろだ病院 (新設候補)', lat: 33.7875020, lng: 132.7383542,              isNew: true},
+  {name: '武智内科 (バス停要望)', lat: 33.7960316, lng: 132.7241636,              isNew: true},
+  {name: '松前郵便局 (新ルート案)', lat: 33.7900309, lng: 132.7057142,              isNew: true},
+  {name: '西本歯科医院 (新ルート案)', lat: 33.7913272, lng: 132.7062158,              isNew: true},
+  {name: '長尾谷橋 (現行・左回りのみ)',  lat: 33.7859541, lng: 132.7043425},
+  {name: '松前駅 (新設候補)', lat: 33.7860990, lng: 132.7050230,              isNew: true},
+  {name: '元気人村 (新設候補)', lat: 33.7775120, lng: 132.6988720,              isNew: true},
+];
+
+// === 主要拠点キーワード ===
+const keyKeywords = ['エミフル','JR北伊予駅前','古泉駅前','岡田駅前','松前病院前','JA松山市北伊予支所前','役場','文化センター','福祉センター'];
+
+function isKeyStop(name) {
+  return keyKeywords.some(k => name.includes(k));
+}
+
+// === 乗降実測データ (85日平均) ===
+const stopBoardingAvg = {
+  'エミフルまさき': 21.2, 'エミアミューズ前': 5.7, 'フィッタ前': 5.7,
+  '岡田駅前': 3.8, '古泉駅前': 3.3, '文化センター前': 2.7,
+  '松前病院前': 2.1, '中川原': 2.1, '徳丸常夜灯前': 1.6, '徳丸公園前': 1.2,
+  '徳丸水源地前': 1.3, '徳丸集会所前': 0.4, '徳丸老人憩いの家前': 0.8,
+  '北川原': 3.2, '塩谷': 0.5, '塩谷南': 1.0, '夫婦橋': 3.3,
+  'JR北伊予駅前': 2.4, '福祉センター前': 2.3, '松前小学校前': 3.5,
+  '黒田保育所前': 2.4, '武智酒造前': 2.3, '中川原西': 0.8,
+  '中川原踏切前': 0.5, '大間集会所前': 2.1, '白鶴保育園前': 0.7,
+  '上高柳集会所前': 1.6, 'むかいだ小児科前': 3.0, '役場前': 0.5,
+  '晴光院前': 0.6, '北伊予小学校前': 1.7, '北伊予踏切前': 1.3,
+  'JA松山市北伊予支所前': 0.5, '二名保育所前': 2.0, '大念寺前': 0.7,
+  '東レ前': 0.7, '旧若葉保育園前': 1.3, 'しのざき医院前': 2.1,
+  '岡田小学校前': 1.1, '木口内科前': 1.2, '升田歯科前': 0.7,
+  '中村酒店前': 0.6, '横田沖台橋': 0.2, '大溝': 0.2, '宗通寺前': 0.1,
+  '伊予スイミング前': 1.1, 'JA松山市永田出張所前': 1.5,
+  'JA松山市鶴吉倉庫前': 0.1, '東古泉': 0.1,
+};
+
+// レイヤーは4つに分割: 東・西・再編東・再編西
+const eastLayer = L.layerGroup().addTo(map);
+const westLayer = L.layerGroup().addTo(map);
+const propEastLayer = L.layerGroup();
+const propWestLayer = L.layerGroup();
+const fullEastLayer = L.layerGroup();
+const fullWestLayer = L.layerGroup();
+const mayorLayer = L.layerGroup();
+const r4EastLayer = L.layerGroup();
+const r4WestLayer = L.layerGroup();
+const r4NorthLayer = L.layerGroup();
+const r4SouthLayer = L.layerGroup();
+const bubbleLayer = L.layerGroup();
+const demandOnLayer = L.layerGroup();   // 乗車
+const demandOffLayer = L.layerGroup();  // 降車
+const demandAllLayer = L.layerGroup();  // 乗降合計
+const ooazaLayer = L.layerGroup();      // 大字ポリゴン（GIS）
+const r4WestGenkiLayer = L.layerGroup();
+const cautionRoadsLayer = L.layerGroup();  // ⚠️ 道路幅要注意区間 (ver24追加)
+const markerLayer = L.layerGroup().addTo(map);
+const layerMap = {
+  'east': eastLayer, 'west': westLayer,
+  'prop-east': propEastLayer, 'prop-west': propWestLayer,
+  'full-east': fullEastLayer, 'full-west': fullWestLayer,
+  'mayor': mayorLayer,
+  'r4-east': r4EastLayer, 'r4-west': r4WestLayer,
+  'r4-north': r4NorthLayer, 'r4-south': r4SouthLayer,
+  'bubble': bubbleLayer,
+  'demand-on': demandOnLayer, 'demand-off': demandOffLayer, 'demand-all': demandAllLayer,
+  'ooaza': ooazaLayer,
+  'r4-west-genki': r4WestGenkiLayer,
+  'caution-roads': cautionRoadsLayer
+};
+
+// === ルート描画 (OSRM 道路沿い・fetch方式) ===
+// OSRMのpublicサーバーは経路点上限があるため、chunkingしてつなぐ
+// === 巡回方向の矢印デコレータ ===
+// ルート線の座標列に沿って、進行方向を示す小さな「➤」を一定間隔で重ねる
+function addRouteArrows(coords, color, targetLayer) {
+  if (!coords || coords.length < 2) return;
+  const INTERVAL = 180; // 矢印の間隔（メートル）
+  const cosLat = Math.cos(coords[0][0] * Math.PI / 180);
+  let acc = 0, next = INTERVAL * 0.6; // 最初の矢印は少し手前に出す
+  for (let i = 1; i < coords.length; i++) {
+    const la1 = coords[i-1][0], ln1 = coords[i-1][1];
+    const la2 = coords[i][0],   ln2 = coords[i][1];
+    const dy = (la2 - la1) * 111000;
+    const dx = (ln2 - ln1) * 111000 * cosLat;
+    const segLen = Math.hypot(dx, dy);
+    if (segLen === 0) continue;
+    while (acc + segLen >= next) {
+      const t = (next - acc) / segLen;
+      const la = la1 + (la2 - la1) * t;
+      const ln = ln1 + (ln2 - ln1) * t;
+      const brg = (Math.atan2(dx, dy) * 180 / Math.PI + 360) % 360; // 方位角
+      L.marker([la, ln], {
+        icon: L.divIcon({
+          html: `<div style="transform:rotate(${brg - 90}deg);width:14px;height:14px;display:flex;align-items:center;justify-content:center;color:${color};font-size:13px;font-weight:bold;line-height:1;text-shadow:0 0 2px #fff,0 0 3px #fff;">➤</div>`,
+          iconSize: [14, 14], iconAnchor: [7, 7], className: ''
+        }),
+        interactive: false, keyboard: false
+      }).addTo(targetLayer);
+      next += INTERVAL;
+    }
+    acc += segLen;
+  }
+}
+
+async function drawRoute(stops, opts, popupHtml, layer) {
+  const CHUNK = 10; // 1回の /route クエリで10点まで
+  const validStops = stops.filter(s => s && s.lat && s.lng);
+  if (validStops.length < 2) {
+    console.warn('drawRoute: 有効なstops不足', validStops);
+    return;
+  }
+  // フォールバック: いったん直線でpolyline描画（OSRM待ち中の暫定表示）
+  const fallbackCoords = validStops.map(s => [s.lat, s.lng]);
+  const fallback = L.polyline(fallbackCoords, {
+    color: opts.color, weight: opts.weight,
+    opacity: (opts.opacity || 0.8) * 0.5,
+    dashArray: opts.dashArray || '2,8'
+  }).addTo(layer).bindPopup(popupHtml + '<br><i>(直線暫定表示・道路沿い計算中)</i>', {autoPan: false});
+  // 矢印レイヤー（ルートのON/OFFに追従）
+  const arrowLayer = L.layerGroup().addTo(layer);
+  addRouteArrows(fallbackCoords, opts.color, arrowLayer);
+
+  const allCoords = [];
+  try {
+    for (let i = 0; i < validStops.length - 1; i += (CHUNK - 1)) {
+      const end = Math.min(i + CHUNK, validStops.length);
+      const chunk = validStops.slice(i, end);
+      const coords = chunk.map(s => `${s.lng},${s.lat}`).join(';');
+      const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`;
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error('OSRM fetch failed: ' + resp.status);
+      const data = await resp.json();
+      if (!data.routes || !data.routes[0]) throw new Error('No route found');
+      const segment = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+      if (allCoords.length && segment.length) segment.shift(); // 重複点除去
+      allCoords.push(...segment);
+    }
+    // 成功: 直線フォールバックを削除して道路沿いを描画
+    layer.removeLayer(fallback);
+    arrowLayer.clearLayers(); // 直線ベースの矢印を消去
+    addRouteArrows(allCoords, opts.color, arrowLayer); // 道路沿いで矢印を引き直し
+    L.polyline(allCoords, {
+      color: opts.color, weight: opts.weight,
+      opacity: opts.opacity, dashArray: opts.dashArray
+    }).addTo(layer).bindPopup(popupHtml, {autoPan: false});
+  } catch (e) {
+    console.warn('OSRM失敗、直線表示のまま:', e);
+    // fallbackは残す（bindPopupの表示も更新）
+    fallback.setPopupContent(popupHtml + '<br><i>(直線表示・OSRM取得失敗)</i>');
+  }
+}
+
+// --- 現行ルート描画 ---
+drawRoute(currentEastStops, 
+  {color: NAVY, weight: 5, opacity: 0.85},
+  '<b>東コース (現行・1便07:50-08:38)</b><br>1日平均: 44.3件<br>26停留所・4便運行 (1・3・5・7便)<br>時刻表データで巡回順を照合済', 
+  eastLayer);
+drawRoute(currentWestStops, 
+  {color: LTBLUE, weight: 5, opacity: 0.85, dashArray: '10,6'},
+  '<b>西コース (現行・2便09:02-09:46)</b><br>1日平均: 56.1件<br>30停留所・4便運行 (2・4・6・8便)<br>時刻表データで巡回順を照合済', 
+  westLayer);
+
+// === 再編案ルート (提案) — 名前で参照 ===
+function findStop(list, name) { return list.find(s => s.name === name); }
+const emifull = findStop(currentEastStops, 'エミフルまさき');
+const koizumi = findStop(currentEastStops, '古泉駅前');
+const higashi_koi = findStop(currentEastStops, '東古泉');
+const nakagawara = findStop(currentEastStops, '中川原');
+const jr_kitaiyo = findStop(currentEastStops, 'JR北伊予駅前');
+const tokumaru_park = findStop(currentEastStops, '徳丸公園前');
+const emiamuse = findStop(currentEastStops, 'エミアミューズ前');
+const fukushi_c = findStop(currentEastStops, '福祉センター前');
+const matsu_hospital = findStop(currentWestStops, '松前病院前');
+const masaki_station = {name: '松前駅 (新設候補)', lat: 33.7860990, lng: 132.7050230};
+const shioya = findStop(currentWestStops, '塩谷');
+const kitagawara = findStop(currentWestStops, '北川原');
+const okada = findStop(currentWestStops, '岡田駅前');
+const fitta = findStop(currentEastStops, 'フィッタ前');
+
+// 再編・東（ハイエースコミューター10人乗り）
+// エミフル→フジ松前店→古泉→東古泉方面→中川原→JR北伊予→徳丸→くろだ病院→エミアミューズ→エミフル
+const propEast = [
+  emifull,
+  {name: 'フジ松前店 (新設候補)', lat: 33.7926292, lng: 132.7067192},
+  koizumi, higashi_koi, jr_kitaiyo, tokumaru_park, nakagawara,
+  {name: 'くろだ病院 (新設候補)', lat: 33.7875020, lng: 132.7383542},
+  emiamuse, emifull,
+];
+// 再編・西（マイクロバス20〜28人乗り）
+// エミフル→福祉センター→松前病院→塩谷→北川原→岡田駅→フジ松前店→エミフル
+const propWest = [
+  emifull, fukushi_c, masaki_station, matsu_hospital, shioya, kitagawara, okada,
+  {name: 'フジ松前店 (新設候補)', lat: 33.7926292, lng: 132.7067192},
+  emifull,
+];
+drawRoute(propEast, {color: '#B71C1C', weight: 6, opacity: 0.95},
+  '<b>再編A（効率型）・基幹東</b><br>車両: <b>ハイエースコミューター</b>（10人乗り）<br>エミフル発着<br>くろだ病院・フジ松前店を新設<br>10停留所・5便運行想定<br>※停留所座標は暫定',
+  propEastLayer);
+drawRoute(propWest, {color: '#1B5E20', weight: 6, opacity: 0.95},
+  '<b>再編A（効率型）・基幹西</b><br>車両: <b>マイクロバス</b>（20〜28人乗り）<br>エミフル発着<br>フジ松前店・松前駅を新設<br>9停留所・5便運行想定<br>※停留所座標は暫定',
+  propWestLayer);
+
+// === 再編B: 既存バス停を網羅する案 ===
+// 東ルート（ハイエース）: 現行東26箇所 + くろだ病院を追加、時刻表順を維持
+const fullEastRoute = [
+  findStop(currentEastStops, '役場前'),
+  findStop(currentEastStops, 'フィッタ前'),
+  findStop(currentEastStops, '北伊予小学校前'),
+  findStop(currentEastStops, '晴光院前'),
+  findStop(currentEastStops, 'JA松山市鶴吉倉庫前'),
+  findStop(currentEastStops, '北伊予踏切前'),
+  findStop(currentEastStops, 'JR北伊予駅前'),
+  findStop(currentEastStops, 'JA松山市北伊予支所前'),
+  findStop(currentEastStops, '二名保育所前'),
+  findStop(currentEastStops, '徳丸老人憩いの家前'),
+  findStop(currentEastStops, '徳丸公園前'),
+  findStop(currentEastStops, '徳丸常夜灯前'),
+  findStop(currentEastStops, '徳丸集会所前'),
+  findStop(currentEastStops, '徳丸水源地前'),
+  findStop(currentEastStops, '中川原西'),
+  findStop(currentEastStops, '中川原'),
+  findStop(currentEastStops, '中川原踏切前'),
+  findStop(currentEastStops, '大間集会所前'),
+  {name: 'くろだ病院 (新設候補)', lat: 33.7875020, lng: 132.7383542},
+  findStop(currentEastStops, '白鶴保育園前'),
+  findStop(currentEastStops, '上高柳集会所前'),
+  findStop(currentEastStops, 'むかいだ小児科前'),
+  findStop(currentEastStops, 'エミアミューズ前'),
+  findStop(currentEastStops, 'エミフルまさき'),
+  findStop(currentEastStops, '古泉駅前'),
+  findStop(currentEastStops, '文化センター前'),
+  findStop(currentEastStops, '福祉センター前'),
+  findStop(currentEastStops, '役場前'), // 発着
+];
+// 西ルート（マイクロバス）: 現行西30箇所 + フジ松前店を追加、時刻表順維持
+const fullWestRoute = [
+  findStop(currentEastStops, 'エミフルまさき'),
+  findStop(currentWestStops, '東古泉'),
+  findStop(currentWestStops, 'JA松山市永田出張所前'),
+  findStop(currentWestStops, '横田沖台橋'),
+  findStop(currentWestStops, '大溝'),
+  findStop(currentWestStops, '宗通寺前'),
+  findStop(currentWestStops, '伊予スイミング前'),
+  findStop(currentWestStops, '黒田保育所前'),
+  findStop(currentWestStops, '武智酒造前'),
+  findStop(currentWestStops, '松前小学校前'),
+  findStop(currentWestStops, '夫婦橋'),
+  findStop(currentWestStops, '中村酒店前'),
+  {name: '松前駅 (新設候補)', lat: 33.7860990, lng: 132.7050230},
+  findStop(currentWestStops, '大念寺前'),
+  findStop(currentWestStops, '松前病院前'),
+  findStop(currentWestStops, '東レ前'),
+  findStop(currentWestStops, '塩谷南'),
+  findStop(currentWestStops, '塩谷'),
+  findStop(currentWestStops, '旧若葉保育園前'),
+  findStop(currentWestStops, '北川原'),
+  findStop(currentWestStops, 'しのざき医院前'),
+  findStop(currentWestStops, '岡田小学校前'),
+  findStop(currentWestStops, '木口内科前'),
+  findStop(currentWestStops, '升田歯科前'),
+  findStop(currentWestStops, '岡田駅前'),
+  {name: 'フジ松前店 (新設候補)', lat: 33.7926292, lng: 132.7067192},
+  findStop(currentWestStops, 'エミフルまさき'),
+  findStop(currentWestStops, 'フィッタ前'),
+  findStop(currentWestStops, 'エミアミューズ前'),
+  findStop(currentWestStops, '古泉駅前'),
+  findStop(currentWestStops, '役場前'),
+  findStop(currentWestStops, '福祉センター前'),
+  findStop(currentWestStops, '文化センター前'),
+];
+
+drawRoute(fullEastRoute, {color: '#7B1FA2', weight: 6, opacity: 0.95},
+  '<b>再編B（網羅型）・東</b><br>車両: <b>ハイエースコミューター</b>（10人乗り）<br>現行東26停留所＋<b>くろだ病院（新設）</b>を追加<br>役場前発着・27停留所<br>既存乗降実績のあるバス停をすべて維持',
+  fullEastLayer);
+drawRoute(fullWestRoute, {color: '#EF6C00', weight: 6, opacity: 0.95},
+  '<b>再編B（網羅型）・西</b><br>車両: <b>マイクロバス</b>（20〜28人乗り）<br>現行西30停留所＋<b>フジ松前店・松前駅（新設）</b>を追加<br>エミフル発着・32停留所<br>既存乗降実績のあるバス停をすべて維持',
+  fullWestLayer);
+
+
+// === 町長希望ルート（施設位置に基づき再配置・循環案） ===
+// 経路：ファンガーデン → 伊予高校前 → 大溝 → 給食センター → はしもと農園 → 鶴寿荘 → 給食センター → ファンガーデン（循環）
+const mayorRoute = [
+  {name: 'ファンガーデンMASAKI本店前 (町長希望)', lat: 33.7852220, lng: 132.7150582},
+  {name: '愛媛県立伊予高校前 (町長希望)',          lat: 33.7816200, lng: 132.7142900},
+  {name: '大溝 (現行・西コース)',                  lat: 33.7786854, lng: 132.7190051},
+  {name: '松前町立学校給食センター (町長希望)',   lat: 33.7850014, lng: 132.7282114},
+  {name: 'はしもと農園前 (町長希望)',             lat: 33.7785607, lng: 132.7340314},
+  {name: '特別養護老人ホーム鶴寿荘 (町長希望)',   lat: 33.7827863, lng: 132.7360224},
+  {name: '松前町立学校給食センター (町長希望)',   lat: 33.7850014, lng: 132.7282114},
+  {name: 'ファンガーデンMASAKI本店前 (町長希望)', lat: 33.7852220, lng: 132.7150582},
+];
+drawRoute(mayorRoute, {color: '#2E7D32', weight: 6, opacity: 0.95, dashArray: '8,4'},
+  '<b>町長希望ルート（候補・循環）</b><br>ファンガーデン発着<br>伊予高校・給食センター・はしもと農園・鶴寿荘を経由<br>大溝周辺の南側ループを含む<br>6停留所（施設位置に基づき配置）',
+  mayorLayer);
+
+// 町長希望ルートのバス停マーカー（緑）を描画
+mayorRoute.forEach(s => {
+  // 重複除外（給食センター2回など）
+  if (mayorRoute.filter(x => x.name === s.name).indexOf(s) > 0) return;
+  // 大きさは既存バス停（一般＝半径5のcircleMarker）と統一、色は町長希望ルール（緑）を維持
+  const marker = L.circleMarker([s.lat, s.lng], {
+    radius: 5, color: 'white', weight: 1.5, fillColor: '#2E7D32', fillOpacity: 0.9
+  }).bindPopup(`<div class="popup-content"><b>${s.name}</b><br><span class="badge" style="background:#C8E6C9;color:#1B5E20;">町長希望ルート候補</span></div>`, {autoPan: false});
+  marker.bindTooltip(s.name.replace(' (町長希望)',''), {
+    permanent: true, direction: 'right', offset: [10, 0],
+    className: 'stop-label-mayor',
+    interactive: false
+  });
+  marker.addTo(mayorLayer);
+});
+
+// === 4分割再編ルート（東西南北・松前駅とエミフルを結節点） ===
+// 全バス停を名称で引く共通関数
+function findAny(name) {
+  return findStop(currentEastStops, name) || findStop(currentWestStops, name);
+}
+const HUB_EMI = {name: 'エミフルまさき', lat: 33.7904127, lng: 132.7152259};
+const HUB_ST  = {name: '松前駅', lat: 33.7860990, lng: 132.7050230};
+
+// 東ルート（マイクロバス）徳丸・中川原・北伊予・大間方面
+const r4East = [
+  HUB_EMI, HUB_ST,
+  findAny('古泉駅前'), findAny('東古泉'), findAny('JA松山市永田出張所前'),
+  findAny('むかいだ小児科前'), {name: '武智内科 (バス停要望)', lat: 33.7960316, lng: 132.7241636},
+  findAny('上高柳集会所前'), findAny('白鶴保育園前'), findAny('大間集会所前'),
+  findAny('JA松山市鶴吉倉庫前'), {name: 'くろだ病院 (新設候補)', lat: 33.7875020, lng: 132.7383542},
+  findAny('晴光院前'), findAny('北伊予小学校前'), findAny('北伊予踏切前'),
+  findAny('JR北伊予駅前'), findAny('JA松山市北伊予支所前'), findAny('二名保育所前'),
+  findAny('徳丸老人憩いの家前'), findAny('徳丸公園前'), findAny('徳丸常夜灯前'),
+  findAny('徳丸集会所前'), findAny('徳丸水源地前'), findAny('中川原西'),
+  findAny('中川原'), findAny('中川原踏切前'),
+  HUB_EMI,
+];
+// 主要施設循環（マイクロバス）: エミフル・古泉駅・役場・松前駅・326号新設3箇所・松前病院を結び、町西部の全バス停を網羅
+const r4West = [
+  HUB_EMI,
+  findAny('古泉駅前'),
+  findAny('エミアミューズ前'),
+  findAny('福祉センター前'),
+  findAny('文化センター前'),
+  findAny('役場前'),
+  HUB_ST,
+  findAny('長尾谷橋'),
+  findAny('中村酒店前'),
+  findAny('松前小学校前'),
+  findAny('夫婦橋'),
+  findAny('大念寺前'),
+  findAny('松前病院前'),
+  findAny('東レ前'),
+  {name: 'フジ松前店 (新設候補)', lat: 33.7926292, lng: 132.7067192},
+  {name: '西本歯科医院 (新ルート案)', lat: 33.7913272, lng: 132.7062158},
+  {name: '松前郵便局 (新ルート案)', lat: 33.7900309, lng: 132.7057142},
+  findAny('フィッタ前'),
+  HUB_EMI,
+];
+// 主要施設循環＋元気人村（マイクロバス）: 松前駅→元気人村→松前小学校前を経由
+const r4WestGenki = [
+  HUB_EMI,
+  findAny('古泉駅前'),
+  findAny('エミアミューズ前'),
+  findAny('福祉センター前'),
+  findAny('文化センター前'),
+  findAny('役場前'),
+  HUB_ST,
+  {name: '元気人村 (新設候補)', lat: 33.7775120, lng: 132.6988720},
+  findAny('松前小学校前'),
+  findAny('夫婦橋'),
+  findAny('大念寺前'),
+  findAny('松前病院前'),
+  findAny('東レ前'),
+  {name: 'フジ松前店 (新設候補)', lat: 33.7926292, lng: 132.7067192},
+  {name: '西本歯科医院 (新ルート案)', lat: 33.7913272, lng: 132.7062158},
+  {name: '松前郵便局 (新ルート案)', lat: 33.7900309, lng: 132.7057142},
+  findAny('フィッタ前'),
+  HUB_EMI,
+];
+// 北ルート（ハイエース）岡田・塩谷・北川原方面
+const r4North = [
+  HUB_EMI, HUB_ST,
+  findAny('古泉駅前'), findAny('岡田駅前'), findAny('升田歯科前'),
+  findAny('木口内科前'), findAny('岡田小学校前'), findAny('しのざき医院前'),
+  findAny('北川原'), findAny('旧若葉保育園前'), findAny('塩谷'), findAny('塩谷南'),
+  HUB_EMI,
+];
+// 南ルート（ハイエース）: 横田沖台橋と大溝をつなぐ骨格＋町長希望施設を統合
+const r4South = [
+  HUB_EMI,
+  findAny('役場前'),
+  {name: 'ファンガーデンMASAKI本店前 (町長希望)', lat: 33.7852220, lng: 132.7150582},
+  {name: '愛媛県立伊予高校前 (町長希望)', lat: 33.7816200, lng: 132.7142900},
+  findAny('大溝'),
+  findAny('宗通寺前'),
+  findAny('伊予スイミング前'),
+  findAny('黒田保育所前'),
+  findAny('武智酒造前'),
+  findAny('横田沖台橋'),
+  {name: 'はしもと農園前 (町長希望)', lat: 33.7785607, lng: 132.7340314},
+  {name: '特別養護老人ホーム鶴寿荘 (町長希望)', lat: 33.7827863, lng: 132.7360224},
+  {name: '松前町立学校給食センター (町長希望)', lat: 33.7850014, lng: 132.7282114},
+  HUB_EMI,
+];
+drawRoute(r4East, {color: '#C2185B', weight: 6, opacity: 0.95},
+  '<b>4分割再編・東ルート</b><br>車両: <b>マイクロバス</b>（20〜28人乗り）<br>結節点: エミフル・松前駅<br>徳丸・中川原・北伊予・大間方面<br>25停留所（全バス停網羅型）', r4EastLayer);
+drawRoute(r4West, {color: '#1565C0', weight: 6, opacity: 0.95},
+  '<b>主要施設循環</b><br>車両: <b>マイクロバス</b>（20〜28人乗り）<br>結節点: エミフル・古泉駅・松前駅<br>役場・松前病院・県道326号（新設3箇所: 郵便局・西本歯科・フジ）を経由<br>町西部の全バス停を網羅する18停留所の循環', r4WestLayer);
+drawRoute(r4WestGenki, {color: '#00897B', weight: 6, opacity: 0.95, dashArray: '8,4'},
+  '<b>主要施設循環＋元気人村</b><br>車両: <b>マイクロバス</b>（20〜28人乗り）<br>結節点: エミフル・古泉駅・松前駅<br>松前駅→元気人村（国道56号沿い）→松前小学校前を経由<br>元気人村（漢方薬草湯）を加えた18停留所の循環', r4WestGenkiLayer);
+drawRoute(r4North, {color: '#6A1B9A', weight: 6, opacity: 0.95},
+  '<b>4分割再編・北ルート</b><br>車両: <b>ハイエースコミューター</b>（10人乗り）<br>結節点: エミフル・松前駅<br>岡田・塩谷・北川原方面<br>11停留所', r4NorthLayer);
+drawRoute(r4South, {color: '#00838F', weight: 6, opacity: 0.95},
+  '<b>4分割再編・南ルート</b><br>車両: <b>ハイエースコミューター</b>（10人乗り）<br>結節点: エミフル<br>大溝〜横田沖台橋の骨格に町長希望施設（ファンガーデン・伊予高校・はしもと農園・鶴寿荘・給食センター）を統合<br>13停留所', r4SouthLayer);
+
+// === ⚠️ 道路幅要注意区間レイヤー (ver24追加) ===
+const cautionSegmentsData = [{"id": 1, "route": "現行東", "from": "フィッタ前", "to": "北伊予小学校前", "width": 3.0, "status": "△要注意", "highway": "track", "lat1": 33.7898357, "lng1": 132.7134244, "lat2": 33.784942, "lng2": 132.74536}, {"id": 2, "route": "現行東", "from": "JA松山市鶴吉倉庫前", "to": "北伊予踏切前", "width": 3.0, "status": "△要注意", "highway": "track", "lat1": 33.7850855, "lng1": 132.7386261, "lat2": 33.7851365, "lng2": 132.7482456}, {"id": 3, "route": "現行西", "from": "エミフルまさき", "to": "東古泉", "width": 3.0, "status": "△要注意", "highway": "track", "lat1": 33.7904127, "lng1": 132.7152259, "lat2": 33.7864964, "lng2": 132.720203}, {"id": 4, "route": "現行西", "from": "横田沖台橋", "to": "大溝", "width": 3.0, "status": "△要注意", "highway": "track", "lat1": 33.7789476, "lng1": 132.729219, "lat2": 33.7786854, "lng2": 132.7190051}, {"id": 5, "route": "現行西", "from": "大溝", "to": "宗通寺前", "width": 3.0, "status": "△要注意", "highway": "track", "lat1": 33.7786854, "lng1": 132.7190051, "lat2": 33.7785658, "lng2": 132.712639}, {"id": 6, "route": "現行西", "from": "宗通寺前", "to": "伊予スイミング前", "width": 3.0, "status": "△要注意", "highway": "track", "lat1": 33.7785658, "lng1": 132.712639, "lat2": 33.7771257, "lng2": 132.7086439}, {"id": 7, "route": "r4East（マイクロバス）", "from": "古泉駅前", "to": "東古泉", "width": 3.0, "status": "△要注意", "highway": "track", "lat1": 33.7922658, "lng1": 132.7169768, "lat2": 33.7864964, "lng2": 132.720203}, {"id": 8, "route": "r4East（マイクロバス）", "from": "JA松山市永田出張所前", "to": "むかいだ小児科前", "width": 3.0, "status": "△要注意", "highway": "track", "lat1": 33.7856085, "lng1": 132.7281679, "lat2": 33.798584, "lng2": 132.7258401}, {"id": 9, "route": "r4East（マイクロバス）", "from": "くろだ病院", "to": "晴光院前", "width": 3.0, "status": "△要注意", "highway": "track", "lat1": 33.787502, "lng1": 132.7383542, "lat2": 33.7845001, "lng2": 132.7422204}, {"id": 10, "route": "r4East（マイクロバス）", "from": "中川原踏切前", "to": "エミフルまさき", "width": 3.0, "status": "△要注意", "highway": "track", "lat1": 33.7980973, "lng1": 132.7484936, "lat2": 33.7904127, "lng2": 132.7152259}, {"id": 11, "route": "r4WestGenki（+元気人村・マイクロバス）", "from": "松前駅", "to": "元気人村", "width": 3.0, "status": "△要注意", "highway": "track", "lat1": 33.786099, "lng1": 132.705023, "lat2": 33.777512, "lng2": 132.698872}, {"id": 12, "route": "r4WestGenki（+元気人村・マイクロバス）", "from": "元気人村", "to": "松前小学校前", "width": 3.0, "status": "△要注意", "highway": "track", "lat1": 33.777512, "lng1": 132.698872, "lat2": 33.7825345, "lng2": 132.7034192}];
+cautionSegmentsData.forEach(seg => {
+  const color = seg.status === '✗通行困難' ? '#B71C1C' : '#FF6F00';
+  const dashArray = seg.status === '✗通行困難' ? '4,4' : '10,6';
+  const line = L.polyline(
+    [[seg.lat1, seg.lng1], [seg.lat2, seg.lng2]],
+    {color: color, weight: 8, opacity: 0.9, dashArray: dashArray}
+  );
+  line.bindPopup(
+    '<b>⚠️ #' + seg.id + ' 要注意区間</b><br>' +
+    '<b>ルート:</b> ' + seg.route + '<br>' +
+    '<b>区間:</b> ' + seg.from + ' → ' + seg.to + '<br>' +
+    '<b>推定道路幅:</b> ' + seg.width.toFixed(1) + ' m<br>' +
+    '<b>OSM分類:</b> ' + seg.highway + '<br>' +
+    '<b>判定:</b> ' + seg.status + '<br>' +
+    '<span style="font-size:11px; color:#666;">実車試走・道路台帳での確認を推奨</span>',
+    POPUP_OPTS
+  );
+  line.addTo(cautionRoadsLayer);
+  // 中間点に警告バッジ
+  const midLat = (seg.lat1 + seg.lat2) / 2;
+  const midLng = (seg.lng1 + seg.lng2) / 2;
+  const badge = L.marker([midLat, midLng], {
+    icon: L.divIcon({
+      html: '<div style="background: rgba(255,255,255,0.95); border: 2px solid ' + color + '; color: ' + color + '; font-weight: 700; font-size: 10px; padding: 2px 6px; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.3); white-space: nowrap;">#' + seg.id + ' ' + seg.width.toFixed(1) + 'm</div>',
+      iconSize: [50, 20], iconAnchor: [25, 10], className: ''
+    }),
+    interactive: false
+  });
+  badge.addTo(cautionRoadsLayer);
+});
+
+
+// --- マーカー描画 ---
+// autoPan を無効化して、ポップアップ/ツールチップでマップが動かないようにする
+const POPUP_OPTS = { autoPan: false, closeOnClick: true };
+function addMarker(stop, kind) {
+  const name = stop.name;
+  const avg = stopBoardingAvg[name];
+  let popup = `<div class="popup-content"><b>${name}</b>`;
+  if (avg !== undefined) popup += `<br>85日実測: 1日平均 <b>${avg}件</b>`;
+  if (kind === 'new') popup += `<br><span class="badge badge-new">★ 新設候補</span>`;
+  else if (kind === 'key') popup += `<br><span class="badge">主要拠点</span>`;
+  popup += '</div>';
+  
+  // 全カテゴリ同一サイズ（半径5）の円マーカーに統一。色のルールのみ維持
+  const fillMap = { new: RED, key: NAVY, regular: GRAY };
+  const marker = L.circleMarker([stop.lat, stop.lng], {
+    radius: 5, color: 'white', weight: 1.5, fillColor: fillMap[kind] || GRAY, fillOpacity: 0.9
+  });
+  marker.bindPopup(popup, POPUP_OPTS);
+  const labelClass = kind === 'new' ? 'stop-label-new' : (kind === 'key' ? 'stop-label-key' : 'stop-label');
+  marker.bindTooltip(name, {
+    permanent: true, direction: 'right', offset: [10, 0],
+    className: labelClass,
+    interactive: false
+  });
+  marker.addTo(markerLayer);
+}
+
+// 東・西の重複回避：同名のエミフルは1回だけ
+const seen = new Set();
+const currentMarkers = []; // 現行バス停マーカー（フィルタ用）
+function addMarkerTracked(stop, kind) {
+  const before = [];
+  markerLayer.eachLayer(l => before.push(l));
+  addMarker(stop, kind);
+  markerLayer.eachLayer(l => {
+    if (!before.includes(l)) currentMarkers.push({marker: l, name: stop.name});
+  });
+}
+currentEastStops.concat(currentWestStops).forEach(s => {
+  if (seen.has(s.name)) return;
+  seen.add(s.name);
+  const kind = isKeyStop(s.name) ? 'key' : 'regular';
+  addMarkerTracked(s, kind);
+});
+newStops.forEach(s => addMarker(s, 'new'));
+
+// === 再編バス停フィルタ ===
+// 再編A（効率型）で使用するバス停名の集合（現行＋新設）
+const REORG_STOPS_A = new Set([
+  'エミフルまさき','エミアミューズ前','古泉駅前','東古泉','JR北伊予駅前','徳丸公園前','中川原',
+  '福祉センター前','松前病院前','塩谷','北川原','岡田駅前',
+]);
+// 再編B（網羅型）は現行全バス停を維持するため、フィルタ対象は再編A基準
+// === バス停名（ラベル）の一括ON/OFF ===
+function toggleStopLabels(btn) {
+  const on = btn.classList.toggle('active');
+  btn.textContent = on ? 'バス停名 ON' : 'バス停名 OFF';
+  // 全レイヤーのツールチップ（ラベル）を対象にする
+  [markerLayer, mayorLayer].forEach(lyr => {
+    lyr.eachLayer(l => {
+      const tt = l.getTooltip && l.getTooltip();
+      if (tt) tt.setOpacity(on ? 1 : 0);
+    });
+  });
+}
+
+function toggleReorgStops(btn) {
+  const on = btn.classList.toggle('active');
+  currentMarkers.forEach(({marker, name}) => {
+    const labelBtn = document.getElementById('stop-label-toggle');
+    const labelOn = labelBtn ? labelBtn.classList.contains('active') : true;
+    if (on && !REORG_STOPS_A.has(name)) {
+      marker.setOpacity(0); // マーカーを透明に
+      if (marker.getTooltip()) marker.getTooltip().setOpacity(0); // ラベルも透明に
+      marker.closePopup();
+    } else {
+      marker.setOpacity(1);
+      if (marker.getTooltip()) marker.getTooltip().setOpacity(labelOn ? 1 : 0);
+    }
+  });
+}
+
+
+// === 乗降客数バブル表示 ===
+// 円の大きさ＝1日平均乗降数、色＝乗降数の多寡（赤=多い→黄→緑=少ない）
+function bubbleColor(v) {
+  if (v >= 10) return '#C62828';
+  if (v >= 5)  return '#EF6C00';
+  if (v >= 3)  return '#F9A825';
+  if (v >= 2)  return '#9E9D24';
+  return '#558B2F';
+}
+function bubbleRadius(v) { return Math.max(6, 6 + v * 1.4); } // 6px〜最大約36px
+(function drawBubbles() {
+  const added = new Set();
+  currentEastStops.concat(currentWestStops).forEach(s => {
+    const v = stopBoardingAvg[s.name];
+    if (v === undefined || added.has(s.name)) return;
+    added.add(s.name);
+    const col = bubbleColor(v);
+    const m = L.circleMarker([s.lat, s.lng], {
+      radius: bubbleRadius(v),
+      color: 'white', weight: 2,
+      fillColor: col, fillOpacity: 0.75
+    });
+    m.bindPopup(`<div class="popup-content"><b>${s.name}</b><br>85日実測: 1日平均 <b>${v}件</b><br><span class="badge" style="background:${col};color:white;">乗降客数スケール表示</span></div>`, {autoPan: false});
+    m.bindTooltip(`${v}`, {
+      permanent: true, direction: 'center', offset: [0, 0],
+      className: 'bubble-label', interactive: false
+    });
+    m.addTo(bubbleLayer);
+  });
+})();
+
+
+const OOAZA_GEOJSON = {"type": "FeatureCollection", "features": [{"type": "Feature", "properties": {"name": "南黒田", "jinko": 1364, "setai": 539, "bus_stops": 2, "bus_boarding": 3.5, "demand": 0, "clat": 33.774324, "clng": 132.71068}, "geometry": {"type": "Polygon", "coordinates": [[[132.715918, 33.777532], [132.715872, 33.774563], [132.715839, 33.772336], [132.714593, 33.772407], [132.714523, 33.771974], [132.714499, 33.771821], [132.714471, 33.77165], [132.714443, 33.771484], [132.714396, 33.771294], [132.714352, 33.771142], [132.714273, 33.77098], [132.71416, 33.770799], [132.714063, 33.770717], [132.713812, 33.770582], [132.713195, 33.770507], [132.71319, 33.770506], [132.712746, 33.770422], [132.712552, 33.770384], [132.712448, 33.770361], [132.712261, 33.770321], [132.712179, 33.770303], [132.712054, 33.770277], [132.711932, 33.770254], [132.711738, 33.770219], [132.711529, 33.770184], [132.711314, 33.77014], [132.711201, 33.77012], [132.7112, 33.77012], [132.711045, 33.770089], [132.710868, 33.770067], [132.710627, 33.770047], [132.710289, 33.770024], [132.709819, 33.77], [132.709413, 33.769978], [132.709348, 33.770896], [132.709286, 33.771346], [132.709286, 33.77135], [132.709267, 33.77176], [132.709193, 33.772937], [132.709146, 33.773404], [132.709139, 33.773554], [132.709124, 33.773806], [132.709118, 33.773977], [132.709091, 33.77418], [132.708806, 33.774178], [132.708798, 33.774178], [132.707555, 33.774136], [132.707385, 33.774131], [132.707177, 33.773847], [132.706936, 33.773559], [132.706911, 33.77294], [132.706963, 33.772021], [132.706521, 33.771994], [132.706507, 33.771148], [132.706503, 33.77105], [132.706348, 33.771057], [132.706148, 33.771052], [132.706131, 33.771052], [132.70576, 33.771043], [132.70576, 33.771157], [132.70576, 33.77116], [132.705758, 33.771386], [132.705582, 33.771378], [132.705479, 33.771585], [132.70544, 33.772018], [132.705427, 33.772361], [132.70539, 33.772593], [132.705323, 33.772801], [132.705299, 33.773093], [132.705263, 33.773534], [132.705301, 33.773677], [132.705282, 33.773853], [132.70528, 33.773984], [132.70528, 33.774008], [132.705317, 33.774119], [132.705332, 33.774163], [132.705345, 33.774297], [132.70534, 33.774536], [132.705362, 33.774843], [132.705469, 33.774861], [132.705482, 33.774981], [132.705368, 33.774983], [132.705343, 33.775334], [132.705271, 33.775352], [132.705143, 33.775375], [132.704833, 33.775432], [132.704514, 33.775476], [132.704289, 33.775499], [132.70412, 33.775511], [132.704001, 33.775517], [132.703937, 33.775523], [132.70392, 33.775987], [132.703849, 33.776001], [132.703912, 33.776375], [132.703944, 33.776573], [132.704002, 33.776813], [132.704002, 33.776813], [132.704075, 33.777046], [132.704779, 33.777136], [132.705419, 33.777205], [132.706002, 33.777222], [132.706614, 33.777184], [132.707666, 33.77713], [132.707823, 33.777125], [132.708181, 33.777139], [132.708265, 33.777145], [132.708715, 33.777183], [132.709608, 33.777245], [132.709808, 33.777264], [132.71097, 33.777294], [132.711616, 33.777317], [132.711889, 33.777343], [132.712093, 33.777372], [132.712531, 33.777409], [132.712738, 33.777397], [132.71285, 33.777368], [132.713038, 33.777379], [132.715918, 33.777532]]]}}, {"type": "Feature", "properties": {"name": "北黒田", "jinko": 3472, "setai": 1456, "bus_stops": 3, "bus_boarding": 2.4, "demand": 7, "clat": 33.779857, "clng": 132.707818}, "geometry": {"type": "Polygon", "coordinates": [[[132.704068, 33.785601], [132.7043, 33.785459], [132.704454, 33.785364], [132.70457, 33.785284], [132.704653, 33.785228], [132.704653, 33.785228], [132.704523, 33.784916], [132.704419, 33.784572], [132.704354, 33.784201], [132.704282, 33.783744], [132.704299, 33.78282], [132.704673, 33.782596], [132.704561, 33.78247], [132.704726, 33.782356], [132.705019, 33.782171], [132.70546, 33.781939], [132.705539, 33.78209], [132.705654, 33.782284], [132.705654, 33.782284], [132.706174, 33.782198], [132.706627, 33.782119], [132.706811, 33.782107], [132.70714, 33.78207], [132.707653, 33.782], [132.707909, 33.78197], [132.708013, 33.782012], [132.708069, 33.782032], [132.708146, 33.78205], [132.708226, 33.782123], [132.708306, 33.782207], [132.708374, 33.782236], [132.708579, 33.782318], [132.708579, 33.782318], [132.708803, 33.782412], [132.708595, 33.782768], [132.708373, 33.782898], [132.708235, 33.783003], [132.708063, 33.783108], [132.707863, 33.78322], [132.707834, 33.783233], [132.707788, 33.783168], [132.707428, 33.783336], [132.707071, 33.783507], [132.706859, 33.783612], [132.706711, 33.783676], [132.706557, 33.783756], [132.706454, 33.783638], [132.705936, 33.783891], [132.705885, 33.783919], [132.705984, 33.784051], [132.705574, 33.784304], [132.705395, 33.784387], [132.70511, 33.784575], [132.704906, 33.784723], [132.705115, 33.784957], [132.705115, 33.784957], [132.705339, 33.784843], [132.705578, 33.784732], [132.705652, 33.784582], [132.705845, 33.784465], [132.705938, 33.784409], [132.706266, 33.784225], [132.706611, 33.784019], [132.706612, 33.784019], [132.706612, 33.784019], [132.706619, 33.784015], [132.707492, 33.783495], [132.707613, 33.783456], [132.70771, 33.783465], [132.707806, 33.783527], [132.707963, 33.783646], [132.708003, 33.783671], [132.708083, 33.783675], [132.708174, 33.78365], [132.708208, 33.783592], [132.708245, 33.783502], [132.708306, 33.783308], [132.708354, 33.7832], [132.708408, 33.783069], [132.708463, 33.782968], [132.708534, 33.782893], [132.708656, 33.782788], [132.708804, 33.782666], [132.708952, 33.782547], [132.709054, 33.78238], [132.709113, 33.782356], [132.709113, 33.782356], [132.709753, 33.782391], [132.70992, 33.782373], [132.710165, 33.782371], [132.710533, 33.782405], [132.710767, 33.782412], [132.710948, 33.782413], [132.711189, 33.7824], [132.711582, 33.782364], [132.71189, 33.782371], [132.712275, 33.782346], [132.71263, 33.782365], [132.712931, 33.782367], [132.713239, 33.782383], [132.713571, 33.782416], [132.713714, 33.782472], [132.713783, 33.782477], [132.714161, 33.782482], [132.714771, 33.782481], [132.715404, 33.782493], [132.715759, 33.782484], [132.715867, 33.782479], [132.715867, 33.782479], [132.715873, 33.782479], [132.716401, 33.782445], [132.716783, 33.782416], [132.717178, 33.782416], [132.717513, 33.782455], [132.717723, 33.782449], [132.717962, 33.782464], [132.718039, 33.782481], [132.718091, 33.782478], [132.718167, 33.782485], [132.718167, 33.782485], [132.71816, 33.781803], [132.71816, 33.781454], [132.718214, 33.780821], [132.718234, 33.780543], [132.718231, 33.780247], [132.718204, 33.779591], [132.718256, 33.779474], [132.718276, 33.778598], [132.718304, 33.777588], [132.718301, 33.777579], [132.718301, 33.777579], [132.718229, 33.777577], [132.715918, 33.777532], [132.715918, 33.777532], [132.713038, 33.777379], [132.71285, 33.777368], [132.712738, 33.777397], [132.712531, 33.777409], [132.712093, 33.777372], [132.711889, 33.777343], [132.711616, 33.777317], [132.71097, 33.777294], [132.709808, 33.777264], [132.709608, 33.777245], [132.708715, 33.777183], [132.708265, 33.777145], [132.708181, 33.777139], [132.707823, 33.777125], [132.707666, 33.77713], [132.706614, 33.777184], [132.706002, 33.777222], [132.705419, 33.777205], [132.704779, 33.777136], [132.704075, 33.777046], [132.704002, 33.776813], [132.704002, 33.776813], [132.703888, 33.776844], [132.703864, 33.777017], [132.703695, 33.777001], [132.703403, 33.776975], [132.702364, 33.776866], [132.702112, 33.776842], [132.702062, 33.776836], [132.701624, 33.77679], [132.699491, 33.776614], [132.698626, 33.776526], [132.698435, 33.776507], [132.698385, 33.776648], [132.698355, 33.776737], [132.698335, 33.776812], [132.69832, 33.776878], [132.698305, 33.776937], [132.698288, 33.776993], [132.698275, 33.777041], [132.698269, 33.777079], [132.698264, 33.777116], [132.698257, 33.77716], [132.698246, 33.777212], [132.698237, 33.77727], [132.69823, 33.777329], [132.698225, 33.777383], [132.698218, 33.777425], [132.698207, 33.777463], [132.69819, 33.777525], [132.698164, 33.777627], [132.698135, 33.777758], [132.698102, 33.777896], [132.698072, 33.778029], [132.698045, 33.778146], [132.698021, 33.778241], [132.698, 33.778317], [132.697982, 33.778365], [132.697961, 33.778421], [132.697943, 33.778461], [132.697891, 33.778452], [132.697884, 33.778482], [132.697939, 33.77849], [132.697943, 33.778515], [132.697942, 33.77854], [132.697934, 33.778573], [132.697924, 33.778614], [132.697912, 33.778656], [132.6979, 33.778698], [132.69789, 33.77874], [132.697878, 33.778777], [132.697867, 33.778815], [132.697857, 33.778857], [132.697847, 33.778901], [132.697838, 33.778948], [132.697826, 33.778997], [132.697815, 33.779051], [132.697801, 33.779112], [132.697784, 33.77918], [132.697766, 33.779252], [132.697702, 33.779242], [132.697695, 33.77927], [132.697758, 33.779281], [132.697644, 33.779843], [132.69763, 33.779901], [132.697617, 33.779951], [132.697601, 33.779996], [132.697586, 33.78004], [132.697519, 33.780027], [132.697509, 33.780069], [132.697573, 33.78008], [132.697546, 33.780181], [132.697524, 33.780251], [132.697498, 33.780335], [132.69747, 33.780425], [132.697444, 33.780512], [132.697423, 33.780596], [132.697404, 33.780679], [132.697387, 33.78076], [132.697381, 33.780786], [132.697374, 33.780818], [132.697356, 33.780817], [132.697352, 33.780849], [132.697363, 33.78085], [132.697352, 33.780887], [132.697342, 33.78093], [132.697332, 33.780981], [132.697323, 33.781039], [132.697312, 33.78109], [132.697299, 33.781129], [132.697283, 33.781166], [132.697259, 33.781219], [132.697231, 33.781291], [132.6972, 33.781383], [132.697167, 33.781488], [132.697119, 33.781618], [132.697119, 33.781618], [132.697439, 33.781624], [132.697765, 33.78163], [132.697981, 33.781614], [132.698256, 33.781659], [132.698483, 33.781695], [132.699024, 33.78174], [132.700587, 33.781854], [132.701387, 33.781909], [132.701581, 33.781927], [132.703351, 33.78201], [132.703404, 33.781999], [132.703761, 33.782028], [132.704236, 33.78207], [132.704138, 33.782148], [132.704077, 33.782206], [132.704013, 33.78227], [132.703945, 33.782354], [132.703847, 33.782501], [132.703765, 33.782663], [132.70371, 33.782783], [132.703672, 33.782959], [132.703655, 33.783158], [132.703617, 33.783619], [132.703579, 33.783973], [132.703536, 33.784288], [132.703492, 33.784521], [132.703419, 33.784775], [132.703419, 33.784775], [132.70339, 33.785013], [132.703354, 33.785225], [132.703336, 33.785353], [132.703325, 33.785471], [132.703331, 33.785552], [132.703354, 33.785622], [132.703414, 33.785689], [132.703495, 33.785789], [132.703495, 33.785789], [132.703652, 33.785749], [132.703905, 33.785602], [132.704023, 33.785532], [132.704068, 33.785601]]]}}, {"type": "Feature", "properties": {"name": "浜", "jinko": 2057, "setai": 955, "bus_stops": 5, "bus_boarding": 4.6, "demand": 10, "clat": 33.785727, "clng": 132.706411}, "geometry": {"type": "MultiPolygon", "coordinates": [[[[132.708146, 33.78205], [132.708069, 33.782032], [132.708013, 33.782012], [132.707909, 33.78197], [132.707653, 33.782], [132.70714, 33.78207], [132.706811, 33.782107], [132.706627, 33.782119], [132.706174, 33.782198], [132.705654, 33.782284], [132.705809, 33.782522], [132.705693, 33.78259], [132.705869, 33.782798], [132.706051, 33.782998], [132.70657, 33.782716], [132.706827, 33.782873], [132.707287, 33.782978], [132.707556, 33.782837], [132.708579, 33.782318], [132.708374, 33.782236], [132.708306, 33.782207], [132.708226, 33.782123], [132.708146, 33.78205]]], [[[132.713391, 33.784279], [132.713397, 33.783438], [132.713528, 33.783424], [132.71494, 33.783362], [132.714943, 33.783295], [132.714937, 33.78319], [132.71514, 33.783145], [132.715277, 33.783117], [132.71546, 33.783086], [132.715631, 33.783063], [132.715771, 33.783037], [132.715818, 33.782732], [132.715827, 33.78268], [132.715867, 33.782479], [132.715759, 33.782484], [132.715404, 33.782493], [132.714771, 33.782481], [132.714161, 33.782482], [132.713783, 33.782477], [132.713714, 33.782472], [132.713571, 33.782416], [132.713239, 33.782383], [132.712931, 33.782367], [132.71263, 33.782365], [132.712275, 33.782346], [132.71189, 33.782371], [132.711582, 33.782364], [132.711189, 33.7824], [132.710948, 33.782413], [132.710767, 33.782412], [132.710533, 33.782405], [132.710165, 33.782371], [132.70992, 33.782373], [132.709753, 33.782391], [132.709113, 33.782356], [132.709205, 33.782724], [132.709235, 33.782822], [132.709284, 33.783065], [132.709331, 33.783409], [132.709337, 33.783529], [132.709349, 33.783719], [132.709343, 33.784098], [132.709344, 33.784374], [132.710676, 33.784326], [132.710668, 33.785243], [132.710668, 33.785332], [132.712406, 33.78534], [132.712677, 33.785351], [132.713022, 33.785343], [132.713422, 33.785344], [132.713394, 33.784364], [132.713391, 33.784279]]], [[[132.705845, 33.784465], [132.705652, 33.784582], [132.705578, 33.784732], [132.705339, 33.784843], [132.705115, 33.784957], [132.704653, 33.785228], [132.70457, 33.785284], [132.704454, 33.785364], [132.7043, 33.785459], [132.704068, 33.785601], [132.704105, 33.785679], [132.704143, 33.785761], [132.704238, 33.785978], [132.704235, 33.786437], [132.704225, 33.786567], [132.70416, 33.786798], [132.70413, 33.786849], [132.704031, 33.786987], [132.703945, 33.787128], [132.703873, 33.787336], [132.70386, 33.787564], [132.7042, 33.787845], [132.704452, 33.788033], [132.704674, 33.788209], [132.704856, 33.788344], [132.704987, 33.78845], [132.705138, 33.788235], [132.70535, 33.787956], [132.705473, 33.787793], [132.705561, 33.787647], [132.705596, 33.78758], [132.70604, 33.787164], [132.70621, 33.787311], [132.706473, 33.787526], [132.70676, 33.787706], [132.706805, 33.787671], [132.706951, 33.787674], [132.706996, 33.787704], [132.708115, 33.78773], [132.709221, 33.787762], [132.709928, 33.78778], [132.709884, 33.787535], [132.709828, 33.787152], [132.709796, 33.786737], [132.709775, 33.786352], [132.709376, 33.786339], [132.709372, 33.785301], [132.70911, 33.78525], [132.708824, 33.785184], [132.708503, 33.785083], [132.708208, 33.784976], [132.708009, 33.7849], [132.708071, 33.784768], [132.708015, 33.784745], [132.707993, 33.784733], [132.70798, 33.784715], [132.707974, 33.784697], [132.70798, 33.784663], [132.70798, 33.784669], [132.707991, 33.784544], [132.708015, 33.784422], [132.708002, 33.784418], [132.707822, 33.784363], [132.707371, 33.784229], [132.707295, 33.784239], [132.706612, 33.784019], [132.706611, 33.784019], [132.706266, 33.784225], [132.705938, 33.784409], [132.705845, 33.784465]]], [[[132.703336, 33.785353], [132.703354, 33.785225], [132.70339, 33.785013], [132.703419, 33.784775], [132.703186, 33.784631], [132.702985, 33.784613], [132.702891, 33.784612], [132.702834, 33.784606], [132.702808, 33.78455], [132.702249, 33.784488], [132.702277, 33.784063], [132.701876, 33.784085], [132.701703, 33.784104], [132.701595, 33.783861], [132.70134, 33.783904], [132.701372, 33.784119], [132.700862, 33.784158], [132.700304, 33.784172], [132.699628, 33.784235], [132.699494, 33.784279], [132.699529, 33.784312], [132.699548, 33.784336], [132.699557, 33.784361], [132.69956, 33.784386], [132.69956, 33.784406], [132.699555, 33.784423], [132.699551, 33.784439], [132.699499, 33.784449], [132.699493, 33.784438], [132.69948, 33.784441], [132.699487, 33.784462], [132.699659, 33.78443], [132.699665, 33.784447], [132.699492, 33.78448], [132.6995, 33.78451], [132.699518, 33.784506], [132.699514, 33.78449], [132.699617, 33.784471], [132.699637, 33.78449], [132.699653, 33.784512], [132.699658, 33.784524], [132.699661, 33.784553], [132.699655, 33.784603], [132.699493, 33.784602], [132.699492, 33.784772], [132.699689, 33.784779], [132.699688, 33.784895], [132.699688, 33.784902], [132.699687, 33.78491], [132.699685, 33.784925], [132.699678, 33.784946], [132.699671, 33.784961], [132.699668, 33.784967], [132.699664, 33.784974], [132.699659, 33.78498], [132.699654, 33.784987], [132.699584, 33.785073], [132.699578, 33.785082], [132.699575, 33.78509], [132.699575, 33.785101], [132.699576, 33.785106], [132.699617, 33.785231], [132.699736, 33.785289], [132.699736, 33.785309], [132.699711, 33.786278], [132.699748, 33.786277], [132.699759, 33.785998], [132.699746, 33.785991], [132.699749, 33.785952], [132.699759, 33.785949], [132.699778, 33.785309], [132.699778, 33.785289], [132.699886, 33.785305], [132.699885, 33.785251], [132.699825, 33.785244], [132.699819, 33.785242], [132.699815, 33.78524], [132.699808, 33.785237], [132.699805, 33.785234], [132.699801, 33.785228], [132.699799, 33.785225], [132.699796, 33.785216], [132.699788, 33.784652], [132.700322, 33.784612], [132.700371, 33.784642], [132.700397, 33.785161], [132.700396, 33.785191], [132.70034, 33.7852], [132.700301, 33.785246], [132.700103, 33.78525], [132.700104, 33.785278], [132.700264, 33.785275], [132.700266, 33.785313], [132.700274, 33.785497], [132.700278, 33.78556], [132.700287, 33.785738], [132.700299, 33.785968], [132.700302, 33.786028], [132.700321, 33.786429], [132.700345, 33.786869], [132.700349, 33.786945], [132.700358, 33.787133], [132.700473, 33.787133], [132.700477, 33.787157], [132.700562, 33.787156], [132.700563, 33.787148], [132.700576, 33.787147], [132.700577, 33.787169], [132.700576, 33.787193], [132.700601, 33.787191], [132.700606, 33.787114], [132.700956, 33.787079], [132.701025, 33.787072], [132.701225, 33.787054], [132.701335, 33.787045], [132.701349, 33.787044], [132.701416, 33.787038], [132.701429, 33.787121], [132.701555, 33.787112], [132.701549, 33.787048], [132.701597, 33.787045], [132.701658, 33.787054], [132.701693, 33.787063], [132.701754, 33.787084], [132.701801, 33.787105], [132.701804, 33.787121], [132.701897, 33.787122], [132.701897, 33.787107], [132.701956, 33.787107], [132.701956, 33.787118], [132.701998, 33.787118], [132.701998, 33.787062], [132.702145, 33.787063], [132.702145, 33.787077], [132.702145, 33.78711], [132.702162, 33.78711], [132.702161, 33.787166], [132.702172, 33.787166], [132.702168, 33.787234], [132.702161, 33.787234], [132.702158, 33.78731], [132.702328, 33.787314], [132.702363, 33.787319], [132.702357, 33.787546], [132.702124, 33.787543], [132.702121, 33.787717], [132.702318, 33.787714], [132.702318, 33.787762], [132.702213, 33.787763], [132.702213, 33.787772], [132.70221, 33.787773], [132.702116, 33.787798], [132.70205, 33.787821], [132.701996, 33.787846], [132.701968, 33.787857], [132.701899, 33.787866], [132.701844, 33.787869], [132.701815, 33.787873], [132.701814, 33.787867], [132.701736, 33.787872], [132.701639, 33.787878], [132.70164, 33.787902], [132.70161, 33.787904], [132.701596, 33.787904], [132.701565, 33.787906], [132.701561, 33.787885], [132.70133, 33.787897], [132.701259, 33.787907], [132.701243, 33.787908], [132.701229, 33.787909], [132.701162, 33.787914], [132.701148, 33.787915], [132.701077, 33.78792], [132.701067, 33.787921], [132.701042, 33.787922], [132.701041, 33.787941], [132.700982, 33.787946], [132.700966, 33.787947], [132.700873, 33.787954], [132.700856, 33.787955], [132.700813, 33.787959], [132.700808, 33.787943], [132.700485, 33.787969], [132.700239, 33.787989], [132.700235, 33.787969], [132.700138, 33.787973], [132.700133, 33.787959], [132.700084, 33.787964], [132.700083, 33.787985], [132.700065, 33.787986], [132.700034, 33.787983], [132.700031, 33.787983], [132.700022, 33.787981], [132.699982, 33.787961], [132.699913, 33.788021], [132.699775, 33.788129], [132.699773, 33.788316], [132.700116, 33.788311], [132.700492, 33.788289], [132.700507, 33.788571], [132.700561, 33.789446], [132.700598, 33.790019], [132.700638, 33.790366], [132.700689, 33.790608], [132.701284, 33.790622], [132.701288, 33.790898], [132.701322, 33.790937], [132.701503, 33.790944], [132.7016, 33.790848], [132.70171, 33.790753], [132.702044, 33.790765], [132.702171, 33.790763], [132.702178, 33.790688], [132.702225, 33.79036], [132.702366, 33.790255], [132.702736, 33.790425], [132.702827, 33.790237], [132.702841, 33.789973], [132.702848, 33.789645], [132.702846, 33.789455], [132.702859, 33.789065], [132.702896, 33.788593], [132.702919, 33.788264], [132.703532, 33.78827], [132.703613, 33.787889], [132.703648, 33.787694], [132.703677, 33.787558], [132.703731, 33.787322], [132.70361, 33.78726], [132.70356, 33.787236], [132.703508, 33.787197], [132.703461, 33.787158], [132.703435, 33.787118], [132.703351, 33.787109], [132.703491, 33.786444], [132.703578, 33.786197], [132.703673, 33.785978], [132.703451, 33.785903], [132.703328, 33.78586], [132.703495, 33.785789], [132.703414, 33.785689], [132.703354, 33.785622], [132.703331, 33.785552], [132.703325, 33.785471], [132.703336, 33.785353]]]]}}, {"type": "Feature", "properties": {"name": "筒井", "jinko": 6717, "setai": 2869, "bus_stops": 13, "bus_boarding": 47.7, "demand": 62, "clat": 33.790091, "clng": 132.702995}, "geometry": {"type": "MultiPolygon", "coordinates": [[[[132.707556, 33.782837], [132.707287, 33.782978], [132.706827, 33.782873], [132.70657, 33.782716], [132.706051, 33.782998], [132.705869, 33.782798], [132.705693, 33.78259], [132.705809, 33.782522], [132.705654, 33.782284], [132.705539, 33.78209], [132.70546, 33.781939], [132.705019, 33.782171], [132.704726, 33.782356], [132.704561, 33.78247], [132.704673, 33.782596], [132.704299, 33.78282], [132.704282, 33.783744], [132.704354, 33.784201], [132.704419, 33.784572], [132.704523, 33.784916], [132.704653, 33.785228], [132.705115, 33.784957], [132.704906, 33.784723], [132.70511, 33.784575], [132.705395, 33.784387], [132.705574, 33.784304], [132.705984, 33.784051], [132.705885, 33.783919], [132.705936, 33.783891], [132.706454, 33.783638], [132.706557, 33.783756], [132.706711, 33.783676], [132.706859, 33.783612], [132.707071, 33.783507], [132.707428, 33.783336], [132.707788, 33.783168], [132.707834, 33.783233], [132.707863, 33.78322], [132.708063, 33.783108], [132.708235, 33.783003], [132.708373, 33.782898], [132.708595, 33.782768], [132.708803, 33.782412], [132.708579, 33.782318], [132.707556, 33.782837]]], [[[132.700862, 33.784158], [132.701372, 33.784119], [132.70134, 33.783904], [132.701595, 33.783861], [132.701703, 33.784104], [132.701876, 33.784085], [132.702277, 33.784063], [132.702249, 33.784488], [132.702808, 33.78455], [132.702834, 33.784606], [132.702891, 33.784612], [132.702985, 33.784613], [132.703186, 33.784631], [132.703419, 33.784775], [132.703492, 33.784521], [132.703536, 33.784288], [132.703579, 33.783973], [132.703617, 33.783619], [132.703655, 33.783158], [132.703672, 33.782959], [132.70371, 33.782783], [132.703765, 33.782663], [132.703847, 33.782501], [132.703945, 33.782354], [132.704013, 33.78227], [132.704077, 33.782206], [132.704138, 33.782148], [132.704236, 33.78207], [132.703761, 33.782028], [132.703404, 33.781999], [132.703351, 33.78201], [132.701581, 33.781927], [132.701387, 33.781909], [132.700587, 33.781854], [132.699024, 33.78174], [132.698483, 33.781695], [132.698256, 33.781659], [132.697981, 33.781614], [132.697765, 33.78163], [132.697439, 33.781624], [132.697119, 33.781618], [132.697103, 33.781705], [132.697068, 33.781809], [132.697035, 33.781915], [132.697, 33.782026], [132.696969, 33.782123], [132.696949, 33.782168], [132.696909, 33.782206], [132.696971, 33.782197], [132.697034, 33.782186], [132.697073, 33.782179], [132.697115, 33.782172], [132.697143, 33.782166], [132.697191, 33.78217], [132.697216, 33.782174], [132.697245, 33.782182], [132.697268, 33.782189], [132.697288, 33.782195], [132.697311, 33.782198], [132.697343, 33.782197], [132.697393, 33.782191], [132.697535, 33.782169], [132.697556, 33.782229], [132.696365, 33.782383], [132.69567, 33.782475], [132.694964, 33.782568], [132.694035, 33.782691], [132.694036, 33.782706], [132.693915, 33.782722], [132.693896, 33.78281], [132.693876, 33.782904], [132.69385, 33.783016], [132.69382, 33.783145], [132.693789, 33.78329], [132.69376, 33.783455], [132.693726, 33.783675], [132.693554, 33.784758], [132.693494, 33.784741], [132.693451, 33.784818], [132.693466, 33.784825], [132.693212, 33.785267], [132.69289, 33.785822], [132.692937, 33.785847], [132.692167, 33.786357], [132.692204, 33.786394], [132.693012, 33.78586], [132.693069, 33.785881], [132.693415, 33.785268], [132.693672, 33.7848], [132.693759, 33.784809], [132.693875, 33.784997], [132.693718, 33.785064], [132.693737, 33.785095], [132.693765, 33.785083], [132.693752, 33.785063], [132.693863, 33.785016], [132.693877, 33.785038], [132.693927, 33.785017], [132.693917, 33.785002], [132.693973, 33.784978], [132.693986, 33.784998], [132.694012, 33.784986], [132.693989, 33.78495], [132.693887, 33.784992], [132.693776, 33.78481], [132.693778, 33.78481], [132.694078, 33.784776], [132.69455, 33.784721], [132.694569, 33.784834], [132.694596, 33.78483], [132.694593, 33.784818], [132.69462, 33.784814], [132.694614, 33.784776], [132.694587, 33.78478], [132.694577, 33.784717], [132.694912, 33.784678], [132.695153, 33.784646], [132.695167, 33.784722], [132.695121, 33.784728], [132.695125, 33.784749], [132.695352, 33.78472], [132.695348, 33.784699], [132.695295, 33.784706], [132.695288, 33.784663], [132.695241, 33.784669], [132.695234, 33.784635], [132.695606, 33.784586], [132.695651, 33.78458], [132.69577, 33.784564], [132.695784, 33.784646], [132.695927, 33.784629], [132.695918, 33.784583], [132.695884, 33.784587], [132.695885, 33.784595], [132.695845, 33.784599], [132.695838, 33.784554], [132.696437, 33.784474], [132.696445, 33.784518], [132.696409, 33.784524], [132.69642, 33.78457], [132.696527, 33.784553], [132.696516, 33.784506], [132.696503, 33.784508], [132.696496, 33.784467], [132.697092, 33.784396], [132.697097, 33.784429], [132.697106, 33.784428], [132.69711, 33.784467], [132.697063, 33.784471], [132.697065, 33.784484], [132.697009, 33.784489], [132.697006, 33.784467], [132.696971, 33.784471], [132.696977, 33.784522], [132.697013, 33.784519], [132.697011, 33.784506], [132.697063, 33.784502], [132.697064, 33.784507], [132.697179, 33.784497], [132.697178, 33.784487], [132.697206, 33.784485], [132.697207, 33.784492], [132.697236, 33.78449], [132.697231, 33.78445], [132.697198, 33.784452], [132.6972, 33.784469], [132.697172, 33.784471], [132.697171, 33.784462], [132.697143, 33.784465], [132.697132, 33.784391], [132.697346, 33.784365], [132.697379, 33.784308], [132.698047, 33.784322], [132.698099, 33.784322], [132.698286, 33.784326], [132.698333, 33.784327], [132.698378, 33.784327], [132.698468, 33.784325], [132.698511, 33.784324], [132.699016, 33.7843], [132.69904, 33.784299], [132.699494, 33.784279], [132.699628, 33.784235], [132.700304, 33.784172], [132.700862, 33.784158]]], [[[132.712221, 33.790404], [132.712237, 33.790375], [132.712325, 33.790351], [132.715856, 33.791964], [132.716379, 33.792211], [132.716504, 33.79229], [132.716857, 33.792295], [132.716868, 33.792284], [132.716885, 33.792284], [132.717384, 33.79228], [132.71764, 33.792252], [132.717658, 33.791964], [132.717669, 33.791959], [132.717896, 33.791753], [132.718184, 33.791493], [132.718288, 33.791399], [132.718324, 33.791403], [132.71857, 33.791434], [132.718635, 33.791442], [132.718648, 33.791385], [132.718659, 33.791314], [132.718679, 33.791221], [132.718702, 33.791134], [132.718725, 33.791066], [132.718744, 33.791023], [132.718777, 33.790962], [132.718847, 33.790866], [132.719056, 33.79062], [132.719093, 33.790453], [132.719099, 33.79038], [132.719182, 33.790271], [132.719222, 33.790235], [132.719166, 33.790182], [132.718801, 33.789825], [132.718256, 33.789822], [132.718252, 33.789281], [132.718272, 33.788507], [132.718164, 33.788438], [132.718123, 33.786433], [132.718126, 33.786095], [132.718128, 33.786095], [132.718328, 33.786105], [132.718322, 33.78575], [132.718129, 33.785746], [132.71813, 33.785497], [132.713422, 33.785344], [132.713022, 33.785343], [132.712677, 33.785351], [132.712406, 33.78534], [132.710668, 33.785332], [132.710668, 33.785243], [132.710676, 33.784326], [132.709344, 33.784374], [132.709343, 33.784098], [132.709349, 33.783719], [132.709337, 33.783529], [132.709331, 33.783409], [132.709284, 33.783065], [132.709235, 33.782822], [132.709205, 33.782724], [132.709113, 33.782356], [132.709054, 33.78238], [132.708952, 33.782547], [132.708804, 33.782666], [132.708656, 33.782788], [132.708534, 33.782893], [132.708463, 33.782968], [132.708408, 33.783069], [132.708354, 33.7832], [132.708306, 33.783308], [132.708245, 33.783502], [132.708208, 33.783592], [132.708174, 33.78365], [132.708083, 33.783675], [132.708003, 33.783671], [132.707963, 33.783646], [132.707806, 33.783527], [132.70771, 33.783465], [132.707613, 33.783456], [132.707492, 33.783495], [132.706619, 33.784015], [132.706612, 33.784019], [132.707295, 33.784239], [132.707371, 33.784229], [132.707822, 33.784363], [132.708002, 33.784418], [132.708015, 33.784422], [132.707991, 33.784544], [132.70798, 33.784669], [132.70798, 33.784663], [132.707974, 33.784697], [132.70798, 33.784715], [132.707993, 33.784733], [132.708015, 33.784745], [132.708071, 33.784768], [132.708009, 33.7849], [132.708208, 33.784976], [132.708503, 33.785083], [132.708824, 33.785184], [132.70911, 33.78525], [132.709372, 33.785301], [132.709376, 33.786339], [132.709775, 33.786352], [132.709796, 33.786737], [132.709828, 33.787152], [132.709884, 33.787535], [132.709928, 33.78778], [132.709221, 33.787762], [132.708115, 33.78773], [132.706996, 33.787704], [132.706951, 33.787674], [132.706805, 33.787671], [132.70676, 33.787706], [132.706473, 33.787526], [132.70621, 33.787311], [132.70604, 33.787164], [132.705596, 33.78758], [132.705561, 33.787647], [132.705473, 33.787793], [132.70535, 33.787956], [132.705138, 33.788235], [132.704987, 33.78845], [132.704856, 33.788344], [132.704674, 33.788209], [132.704452, 33.788033], [132.7042, 33.787845], [132.70386, 33.787564], [132.703873, 33.787336], [132.703945, 33.787128], [132.704031, 33.786987], [132.70413, 33.786849], [132.70416, 33.786798], [132.704225, 33.786567], [132.704235, 33.786437], [132.704238, 33.785978], [132.704143, 33.785761], [132.704105, 33.785679], [132.704068, 33.785601], [132.704023, 33.785532], [132.703905, 33.785602], [132.703652, 33.785749], [132.703495, 33.785789], [132.703328, 33.78586], [132.703451, 33.785903], [132.703673, 33.785978], [132.703578, 33.786197], [132.703491, 33.786444], [132.703351, 33.787109], [132.703435, 33.787118], [132.703461, 33.787158], [132.703508, 33.787197], [132.70356, 33.787236], [132.70361, 33.78726], [132.703731, 33.787322], [132.703677, 33.787558], [132.703648, 33.787694], [132.703613, 33.787889], [132.703532, 33.78827], [132.702919, 33.788264], [132.702896, 33.788593], [132.702859, 33.789065], [132.702846, 33.789455], [132.702848, 33.789645], [132.702841, 33.789973], [132.702827, 33.790237], [132.702736, 33.790425], [132.702366, 33.790255], [132.702225, 33.79036], [132.702178, 33.790688], [132.702171, 33.790763], [132.702044, 33.790765], [132.70171, 33.790753], [132.7016, 33.790848], [132.701503, 33.790944], [132.701322, 33.790937], [132.701288, 33.790898], [132.701284, 33.790622], [132.700689, 33.790608], [132.700638, 33.790366], [132.700598, 33.790019], [132.700561, 33.789446], [132.700507, 33.788571], [132.700492, 33.788289], [132.700116, 33.788311], [132.699773, 33.788316], [132.699775, 33.788129], [132.699913, 33.788021], [132.699982, 33.787961], [132.699906, 33.78782], [132.699883, 33.787781], [132.699749, 33.787554], [132.699764, 33.787547], [132.699733, 33.787499], [132.700048, 33.787317], [132.70002, 33.787283], [132.69971, 33.787462], [132.699691, 33.787428], [132.699678, 33.787433], [132.699613, 33.787314], [132.699578, 33.787259], [132.699537, 33.787209], [132.699525, 33.787198], [132.699508, 33.78718], [132.699441, 33.787113], [132.699408, 33.787081], [132.6994, 33.787075], [132.699329, 33.787007], [132.699246, 33.786926], [132.6992, 33.78688], [132.699205, 33.78678], [132.69926, 33.786782], [132.699266, 33.786751], [132.699213, 33.786741], [132.699215, 33.786688], [132.699214, 33.786685], [132.699213, 33.786683], [132.699211, 33.786678], [132.699208, 33.786675], [132.699204, 33.786672], [132.699194, 33.78667], [132.698425, 33.786594], [132.698144, 33.786564], [132.697852, 33.786533], [132.69756, 33.7865], [132.697267, 33.786468], [132.697131, 33.78653], [132.696888, 33.78651], [132.696856, 33.78651], [132.696827, 33.786512], [132.696803, 33.786517], [132.696782, 33.786525], [132.696765, 33.786536], [132.696752, 33.786549], [132.69674, 33.786564], [132.69673, 33.786579], [132.696645, 33.786549], [132.696643, 33.786523], [132.696645, 33.786512], [132.696647, 33.7865], [132.696643, 33.78649], [132.696631, 33.786481], [132.696614, 33.786475], [132.696602, 33.786473], [132.69659, 33.786475], [132.69657, 33.786481], [132.696537, 33.78649], [132.696499, 33.786499], [132.696466, 33.786506], [132.696442, 33.786508], [132.696425, 33.78651], [132.695635, 33.786304], [132.694173, 33.785932], [132.694145, 33.786014], [132.694386, 33.786079], [132.694492, 33.786076], [132.693724, 33.788155], [132.693694, 33.788234], [132.689961, 33.788391], [132.689476, 33.78975], [132.689454, 33.789809], [132.688202, 33.7933], [132.691094, 33.794269], [132.691959, 33.794552], [132.692471, 33.79473], [132.693199, 33.79499], [132.693068, 33.795369], [132.693013, 33.795517], [132.693626, 33.795667], [132.694133, 33.795782], [132.694622, 33.795905], [132.695496, 33.796124], [132.695844, 33.796186], [132.696162, 33.796225], [132.696701, 33.796257], [132.69722, 33.796277], [132.697913, 33.7963], [132.698785, 33.796337], [132.69964, 33.796367], [132.700365, 33.796386], [132.700905, 33.79641], [132.701293, 33.796422], [132.701684, 33.796439], [132.702229, 33.796458], [132.702773, 33.796484], [132.703371, 33.796512], [132.703446, 33.796515], [132.703641, 33.796527], [132.703803, 33.796536], [132.704183, 33.796588], [132.70451, 33.796647], [132.704874, 33.796733], [132.705397, 33.796871], [132.706483, 33.797262], [132.707239, 33.797509], [132.708002, 33.797752], [132.70894, 33.798093], [132.709352, 33.79828], [132.709768, 33.798466], [132.710336, 33.798705], [132.710491, 33.798772], [132.710866, 33.798951], [132.711111, 33.799065], [132.711397, 33.799181], [132.711537, 33.799244], [132.711467, 33.799144], [132.711401, 33.799049], [132.711366, 33.799], [132.71124, 33.79882], [132.711163, 33.798723], [132.711024, 33.798561], [132.710862, 33.798371], [132.710647, 33.798137], [132.71064, 33.798129], [132.710602, 33.798085], [132.710095, 33.797483], [132.709972, 33.797336], [132.709726, 33.79704], [132.709642, 33.796936], [132.709625, 33.796918], [132.709501, 33.796788], [132.709376, 33.796653], [132.709146, 33.79644], [132.708813, 33.796148], [132.708733, 33.796074], [132.708499, 33.795865], [132.708314, 33.795661], [132.708178, 33.795501], [132.707984, 33.795185], [132.707909, 33.795079], [132.707829, 33.794971], [132.707731, 33.794827], [132.707673, 33.79472], [132.707611, 33.794618], [132.707468, 33.794379], [132.707427, 33.79429], [132.707329, 33.79408], [132.707276, 33.793964], [132.707206, 33.793802], [132.707253, 33.793774], [132.707241, 33.793714], [132.7073, 33.793707], [132.707282, 33.7936], [132.707265, 33.793498], [132.707262, 33.793431], [132.707556, 33.793362], [132.707793, 33.793299], [132.708053, 33.793235], [132.708122, 33.793222], [132.708249, 33.793221], [132.708455, 33.793217], [132.708605, 33.793218], [132.708686, 33.793216], [132.709047, 33.793137], [132.709118, 33.793082], [132.7092, 33.792967], [132.709274, 33.792866], [132.709366, 33.79274], [132.709571, 33.792441], [132.709721, 33.792237], [132.709856, 33.792046], [132.709885, 33.791985], [132.709891, 33.791853], [132.709887, 33.791772], [132.7099, 33.791705], [132.709929, 33.791624], [132.709979, 33.791502], [132.710093, 33.791191], [132.710133, 33.79084], [132.710157, 33.790377], [132.710215, 33.789789], [132.710128, 33.789722], [132.710593, 33.78973], [132.710554, 33.790158], [132.710587, 33.790582], [132.710574, 33.790789], [132.71057, 33.790864], [132.710701, 33.790865], [132.710761, 33.790866], [132.710741, 33.791001], [132.71072, 33.791235], [132.71201, 33.79129], [132.712075, 33.790996], [132.712137, 33.790747], [132.712221, 33.790404]]]]}}, {"type": "Feature", "properties": {"name": "徳丸", "jinko": 1353, "setai": 509, "bus_stops": 5, "bus_boarding": 5.3, "demand": 2, "clat": 33.792619, "clng": 132.761158}, "geometry": {"type": "Polygon", "coordinates": [[[132.754567, 33.78628], [132.754469, 33.786384], [132.754388, 33.786478], [132.754363, 33.786552], [132.75436, 33.786813], [132.754366, 33.7871], [132.754353, 33.787728], [132.754352, 33.787792], [132.754351, 33.787883], [132.754585, 33.787942], [132.754795, 33.788004], [132.754807, 33.788068], [132.754819, 33.788146], [132.75485, 33.788281], [132.754898, 33.788494], [132.754896, 33.788783], [132.754883, 33.789834], [132.754893, 33.790537], [132.754925, 33.791152], [132.753961, 33.791205], [132.753701, 33.791227], [132.753739, 33.791783], [132.751955, 33.792015], [132.751962, 33.792107], [132.751468, 33.792144], [132.751669, 33.792978], [132.751945, 33.792943], [132.752131, 33.79293], [132.752151, 33.792974], [132.752159, 33.793018], [132.752174, 33.793181], [132.752181, 33.793272], [132.752152, 33.793316], [132.751767, 33.793432], [132.751915, 33.794017], [132.752018, 33.794364], [132.752098, 33.794662], [132.752098, 33.794662], [132.752398, 33.79461], [132.752581, 33.79458], [132.752875, 33.794574], [132.753375, 33.794801], [132.753786, 33.794985], [132.754173, 33.795187], [132.754415, 33.795297], [132.75525, 33.795745], [132.755431, 33.79586], [132.755864, 33.795873], [132.75625, 33.795862], [132.756446, 33.795925], [132.756608, 33.795997], [132.756723, 33.796029], [132.756792, 33.796039], [132.756864, 33.796172], [132.756968, 33.796304], [132.757048, 33.796386], [132.757197, 33.796461], [132.757366, 33.79658], [132.75758, 33.79671], [132.757709, 33.796778], [132.758013, 33.79694], [132.758291, 33.797084], [132.758469, 33.797176], [132.758703, 33.797266], [132.758917, 33.797314], [132.759047, 33.797322], [132.759181, 33.797292], [132.759391, 33.79728], [132.759545, 33.797267], [132.759723, 33.797279], [132.75999, 33.797294], [132.76016, 33.797305], [132.760371, 33.797272], [132.760602, 33.797253], [132.760841, 33.797224], [132.760971, 33.797205], [132.761036, 33.797168], [132.76111, 33.797108], [132.761207, 33.797051], [132.761329, 33.797001], [132.761652, 33.79693], [132.761851, 33.796884], [132.762005, 33.796838], [132.762078, 33.796791], [132.762217, 33.796673], [132.762437, 33.796485], [132.762506, 33.796435], [132.762633, 33.796368], [132.762867, 33.796241], [132.762975, 33.796578], [132.763018, 33.796734], [132.763082, 33.797067], [132.763115, 33.797182], [132.763158, 33.797306], [132.763238, 33.797502], [132.763336, 33.797779], [132.763351, 33.797811], [132.763632, 33.79773], [132.763686, 33.797802], [132.763783, 33.797965], [132.76387, 33.7981], [132.764, 33.798272], [132.764228, 33.798533], [132.764477, 33.798813], [132.764693, 33.799066], [132.764866, 33.799238], [132.764866, 33.799238], [132.765086, 33.799142], [132.765383, 33.798984], [132.765758, 33.798765], [132.766165, 33.798555], [132.766618, 33.79829], [132.766965, 33.798127], [132.767346, 33.797902], [132.7676, 33.797784], [132.767857, 33.797609], [132.768357, 33.797257], [132.768361, 33.797254], [132.768428, 33.797206], [132.768594, 33.797087], [132.768723, 33.796995], [132.768864, 33.796894], [132.769261, 33.796628], [132.769428, 33.796511], [132.769468, 33.796483], [132.769871, 33.796201], [132.770261, 33.795925], [132.770494, 33.795758], [132.770625, 33.795678], [132.770701, 33.795632], [132.770812, 33.795552], [132.770844, 33.79553], [132.770729, 33.795339], [132.770376, 33.795047], [132.770212, 33.794847], [132.769967, 33.794551], [132.769807, 33.794364], [132.769642, 33.794161], [132.76936, 33.793819], [132.769151, 33.793578], [132.769213, 33.793447], [132.769514, 33.792639], [132.769527, 33.792508], [132.769739, 33.792309], [132.769849, 33.792209], [132.770087, 33.791658], [132.770132, 33.79158], [132.770357, 33.791291], [132.770439, 33.79118], [132.770537, 33.791066], [132.770746, 33.790793], [132.770728, 33.790758], [132.770585, 33.790802], [132.770345, 33.790891], [132.769737, 33.791014], [132.769226, 33.791033], [132.768991, 33.791064], [132.768486, 33.791135], [132.768381, 33.791142], [132.767546, 33.791199], [132.767512, 33.791162], [132.767499, 33.79106], [132.767485, 33.79097], [132.7675, 33.790929], [132.767583, 33.790897], [132.767779, 33.790878], [132.767916, 33.790882], [132.768077, 33.790867], [132.768117, 33.790847], [132.768093, 33.790818], [132.76797, 33.790805], [132.767604, 33.790795], [132.76733, 33.790789], [132.767193, 33.79076], [132.767144, 33.790706], [132.767083, 33.79042], [132.766967, 33.790309], [132.766943, 33.790215], [132.766967, 33.79014], [132.767048, 33.789965], [132.767104, 33.789823], [132.767096, 33.789669], [132.767044, 33.789521], [132.766989, 33.789409], [132.766926, 33.789378], [132.766872, 33.789375], [132.766819, 33.789427], [132.766812, 33.789434], [132.766723, 33.789582], [132.766593, 33.789717], [132.766455, 33.789794], [132.766286, 33.789868], [132.766153, 33.789925], [132.765923, 33.789891], [132.76559, 33.789958], [132.765266, 33.790042], [132.764982, 33.790114], [132.764727, 33.79019], [132.764393, 33.790384], [132.764186, 33.790497], [132.76401, 33.79052], [132.763834, 33.790532], [132.763682, 33.790522], [132.763457, 33.790493], [132.763369, 33.790472], [132.76336, 33.790394], [132.763469, 33.790268], [132.763499, 33.790187], [132.76351, 33.790076], [132.76352, 33.789962], [132.763536, 33.789909], [132.763561, 33.789852], [132.763634, 33.789799], [132.763718, 33.789702], [132.763734, 33.789624], [132.763733, 33.789451], [132.764169, 33.789351], [132.764233, 33.789319], [132.764248, 33.789274], [132.764244, 33.789201], [132.764162, 33.789025], [132.764055, 33.78893], [132.763919, 33.788815], [132.763769, 33.788704], [132.763618, 33.788601], [132.76355, 33.788564], [132.76354, 33.788531], [132.763821, 33.788251], [132.763979, 33.788121], [132.764087, 33.788032], [132.764034, 33.787975], [132.763921, 33.788023], [132.763793, 33.788088], [132.763577, 33.788254], [132.763478, 33.788327], [132.763385, 33.78835], [132.763288, 33.788317], [132.763164, 33.788225], [132.763002, 33.788179], [132.762871, 33.788153], [132.762729, 33.788157], [132.76266, 33.788181], [132.762256, 33.787978], [132.762168, 33.7879], [132.761947, 33.787985], [132.761869, 33.788041], [132.761776, 33.788057], [132.761727, 33.788045], [132.761639, 33.787995], [132.761473, 33.787982], [132.76114, 33.787984], [132.761067, 33.787975], [132.761033, 33.787955], [132.761028, 33.787914], [132.761026, 33.787878], [132.761024, 33.787836], [132.76105, 33.787653], [132.761091, 33.787477], [132.761131, 33.78733], [132.761166, 33.787188], [132.761219, 33.78701], [132.76127, 33.786803], [132.761301, 33.786652], [132.761346, 33.786525], [132.761376, 33.786407], [132.761387, 33.78633], [132.761383, 33.786223], [132.761006, 33.786237], [132.760477, 33.786242], [132.75993, 33.786227], [132.759308, 33.786223], [132.759122, 33.786222], [132.758831, 33.78621], [132.758636, 33.78621], [132.758225, 33.786202], [132.758043, 33.786263], [132.757947, 33.786325], [132.757883, 33.786362], [132.757815, 33.786353], [132.757503, 33.786286], [132.757346, 33.786281], [132.757014, 33.786254], [132.756813, 33.786261], [132.756647, 33.786232], [132.756403, 33.786202], [132.756163, 33.786216], [132.756006, 33.78624], [132.755888, 33.786256], [132.755722, 33.78623], [132.755385, 33.786195], [132.75516, 33.786174], [132.755018, 33.786157], [132.754891, 33.786164], [132.754788, 33.786184], [132.7547, 33.786216], [132.754567, 33.78628]]]}}, {"type": "Feature", "properties": {"name": "中川原", "jinko": 1139, "setai": 406, "bus_stops": 3, "bus_boarding": 3.4, "demand": 9, "clat": 33.799802, "clng": 132.751603}, "geometry": {"type": "Polygon", "coordinates": [[[132.764866, 33.799238], [132.764693, 33.799066], [132.764477, 33.798813], [132.764228, 33.798533], [132.764, 33.798272], [132.76387, 33.7981], [132.763783, 33.797965], [132.763686, 33.797802], [132.763632, 33.79773], [132.763351, 33.797811], [132.763336, 33.797779], [132.763238, 33.797502], [132.763158, 33.797306], [132.763115, 33.797182], [132.763082, 33.797067], [132.763018, 33.796734], [132.762975, 33.796578], [132.762867, 33.796241], [132.762633, 33.796368], [132.762506, 33.796435], [132.762437, 33.796485], [132.762217, 33.796673], [132.762078, 33.796791], [132.762005, 33.796838], [132.761851, 33.796884], [132.761652, 33.79693], [132.761329, 33.797001], [132.761207, 33.797051], [132.76111, 33.797108], [132.761036, 33.797168], [132.760971, 33.797205], [132.760841, 33.797224], [132.760602, 33.797253], [132.760371, 33.797272], [132.76016, 33.797305], [132.75999, 33.797294], [132.759723, 33.797279], [132.759545, 33.797267], [132.759391, 33.79728], [132.759181, 33.797292], [132.759047, 33.797322], [132.758917, 33.797314], [132.758703, 33.797266], [132.758469, 33.797176], [132.758291, 33.797084], [132.758013, 33.79694], [132.757709, 33.796778], [132.75758, 33.79671], [132.757366, 33.79658], [132.757197, 33.796461], [132.757048, 33.796386], [132.756968, 33.796304], [132.756864, 33.796172], [132.756792, 33.796039], [132.756723, 33.796029], [132.756608, 33.795997], [132.756446, 33.795925], [132.75625, 33.795862], [132.755864, 33.795873], [132.755431, 33.79586], [132.75525, 33.795745], [132.754415, 33.795297], [132.754173, 33.795187], [132.753786, 33.794985], [132.753375, 33.794801], [132.752875, 33.794574], [132.752581, 33.79458], [132.752398, 33.79461], [132.752098, 33.794662], [132.752098, 33.794662], [132.751941, 33.794617], [132.751702, 33.794589], [132.75154, 33.794571], [132.751447, 33.794553], [132.75133, 33.794492], [132.751165, 33.79443], [132.751027, 33.794426], [132.750881, 33.794405], [132.750634, 33.7944], [132.750602, 33.794359], [132.750591, 33.794257], [132.750598, 33.794247], [132.750601, 33.794236], [132.750596, 33.794231], [132.750442, 33.79429], [132.75028, 33.794346], [132.750093, 33.794403], [132.75, 33.794428], [132.749714, 33.794502], [132.749484, 33.794573], [132.749471, 33.794579], [132.749382, 33.794707], [132.749371, 33.794716], [132.749355, 33.794717], [132.749249, 33.794698], [132.749167, 33.794681], [132.74911, 33.794667], [132.749018, 33.794639], [132.748873, 33.794587], [132.748759, 33.794553], [132.74857, 33.794505], [132.748534, 33.794493], [132.748508, 33.794478], [132.748495, 33.794462], [132.748493, 33.794443], [132.748494, 33.794431], [132.748203, 33.794438], [132.748047, 33.794443], [132.748001, 33.794539], [132.747955, 33.794687], [132.74784, 33.79492], [132.747748, 33.794959], [132.747585, 33.794977], [132.747357, 33.794968], [132.746669, 33.794943], [132.745576, 33.79497], [132.745015, 33.794904], [132.744493, 33.794921], [132.743715, 33.794947], [132.74316, 33.794964], [132.742852, 33.794927], [132.742852, 33.794927], [132.74286, 33.794994], [132.742852, 33.795114], [132.743107, 33.795212], [132.743111, 33.795344], [132.743139, 33.796004], [132.74314, 33.796097], [132.742705, 33.79609], [132.742685, 33.796092], [132.742421, 33.796079], [132.74241, 33.796638], [132.74241, 33.796641], [132.743066, 33.796704], [132.743199, 33.796719], [132.743256, 33.797345], [132.743305, 33.797655], [132.743278, 33.797889], [132.74315, 33.797886], [132.742894, 33.797888], [132.742867, 33.79846], [132.743239, 33.798703], [132.743543, 33.7989], [132.74354, 33.799163], [132.743533, 33.7998], [132.743211, 33.799776], [132.743199, 33.800249], [132.743184, 33.800546], [132.743165, 33.800884], [132.743138, 33.801463], [132.7431, 33.802088], [132.743057, 33.802747], [132.743037, 33.803132], [132.743027, 33.803335], [132.743065, 33.803649], [132.743093, 33.803915], [132.743127, 33.804199], [132.743146, 33.804348], [132.743177, 33.804551], [132.743235, 33.804862], [132.743345, 33.805523], [132.743345, 33.805523], [132.74401, 33.805517], [132.745218, 33.805493], [132.747463, 33.805474], [132.748025, 33.80547], [132.748761, 33.80543], [132.749196, 33.805402], [132.74924, 33.805399], [132.749404, 33.805388], [132.749708, 33.805365], [132.750008, 33.805336], [132.750119, 33.805323], [132.750302, 33.805301], [132.750585, 33.805259], [132.750849, 33.805208], [132.751106, 33.805151], [132.751646, 33.805018], [132.752162, 33.80489], [132.752374, 33.804819], [132.752501, 33.804774], [132.752752, 33.804674], [132.753514, 33.804357], [132.75359, 33.804324], [132.754024, 33.804114], [132.754164, 33.804042], [132.75442, 33.803937], [132.754863, 33.803737], [132.755369, 33.8035], [132.75606, 33.803186], [132.756637, 33.802928], [132.757258, 33.802671], [132.757547, 33.802566], [132.757741, 33.802471], [132.758005, 33.802391], [132.758278, 33.80232], [132.758553, 33.802224], [132.759228, 33.802016], [132.759827, 33.801802], [132.76063, 33.801473], [132.761345, 33.801151], [132.761952, 33.800838], [132.762474, 33.800558], [132.763092, 33.800236], [132.763513, 33.800019], [132.763797, 33.799882], [132.763884, 33.799839], [132.764121, 33.799721], [132.764287, 33.799641], [132.764444, 33.799568], [132.764613, 33.79949], [132.764866, 33.799238]]]}}, {"type": "Feature", "properties": {"name": "出作", "jinko": 736, "setai": 296, "bus_stops": 3, "bus_boarding": 4.9, "demand": 11, "clat": 33.790097, "clng": 132.749738}, "geometry": {"type": "Polygon", "coordinates": [[[132.746631, 33.791919], [132.747867, 33.791869], [132.747885, 33.792021], [132.747897, 33.792395], [132.746689, 33.792449], [132.746631, 33.791919], [132.746631, 33.791919], [132.745501, 33.791994], [132.74553, 33.79284], [132.743506, 33.792856], [132.743116, 33.79286], [132.743008, 33.792853], [132.7429, 33.792862], [132.742894, 33.792781], [132.742691, 33.792804], [132.742432, 33.792819], [132.742152, 33.792831], [132.74193, 33.792816], [132.741517, 33.79279], [132.741193, 33.792774], [132.740978, 33.792753], [132.740776, 33.792741], [132.740796, 33.792999], [132.7408, 33.793463], [132.7408, 33.79431], [132.740746, 33.794325], [132.740744, 33.794792], [132.740744, 33.794792], [132.741558, 33.794871], [132.742377, 33.794912], [132.742663, 33.794923], [132.742852, 33.794927], [132.742852, 33.794927], [132.74316, 33.794964], [132.743715, 33.794947], [132.744493, 33.794921], [132.745015, 33.794904], [132.745576, 33.79497], [132.746669, 33.794943], [132.747357, 33.794968], [132.747585, 33.794977], [132.747748, 33.794959], [132.74784, 33.79492], [132.747955, 33.794687], [132.748001, 33.794539], [132.748047, 33.794443], [132.748203, 33.794438], [132.748494, 33.794431], [132.748493, 33.794443], [132.748495, 33.794462], [132.748508, 33.794478], [132.748534, 33.794493], [132.74857, 33.794505], [132.748759, 33.794553], [132.748873, 33.794587], [132.749018, 33.794639], [132.74911, 33.794667], [132.749167, 33.794681], [132.749249, 33.794698], [132.749355, 33.794717], [132.749371, 33.794716], [132.749382, 33.794707], [132.749471, 33.794579], [132.749484, 33.794573], [132.749714, 33.794502], [132.75, 33.794428], [132.750093, 33.794403], [132.75028, 33.794346], [132.750442, 33.79429], [132.750596, 33.794231], [132.750601, 33.794236], [132.750598, 33.794247], [132.750591, 33.794257], [132.750602, 33.794359], [132.750634, 33.7944], [132.750881, 33.794405], [132.751027, 33.794426], [132.751165, 33.79443], [132.75133, 33.794492], [132.751447, 33.794553], [132.75154, 33.794571], [132.751702, 33.794589], [132.751941, 33.794617], [132.752098, 33.794662], [132.752098, 33.794662], [132.752018, 33.794364], [132.751915, 33.794017], [132.751767, 33.793432], [132.752152, 33.793316], [132.752181, 33.793272], [132.752174, 33.793181], [132.752159, 33.793018], [132.752151, 33.792974], [132.752131, 33.79293], [132.751945, 33.792943], [132.751669, 33.792978], [132.751468, 33.792144], [132.751962, 33.792107], [132.751955, 33.792015], [132.753739, 33.791783], [132.753701, 33.791227], [132.753961, 33.791205], [132.754925, 33.791152], [132.754893, 33.790537], [132.754883, 33.789834], [132.754896, 33.788783], [132.754898, 33.788494], [132.75485, 33.788281], [132.754819, 33.788146], [132.754807, 33.788068], [132.754795, 33.788004], [132.754585, 33.787942], [132.754351, 33.787883], [132.754352, 33.787792], [132.754353, 33.787728], [132.754366, 33.7871], [132.75436, 33.786813], [132.754363, 33.786552], [132.754388, 33.786478], [132.754469, 33.786384], [132.754567, 33.78628], [132.754567, 33.78628], [132.754588, 33.786162], [132.754596, 33.786103], [132.754562, 33.785988], [132.75448, 33.785918], [132.754441, 33.785869], [132.754437, 33.785796], [132.754453, 33.785657], [132.754478, 33.785547], [132.754529, 33.785368], [132.754557, 33.785236], [132.75459, 33.785009], [132.75463, 33.784903], [132.754733, 33.784587], [132.754715, 33.78446], [132.754691, 33.784382], [132.754447, 33.784303], [132.75413, 33.784228], [132.753671, 33.784107], [132.753163, 33.783997], [132.752738, 33.783934], [132.752413, 33.783901], [132.752257, 33.783908], [132.752031, 33.783927], [132.751904, 33.783927], [132.751777, 33.783905], [132.75165, 33.783843], [132.751543, 33.783794], [132.751426, 33.783805], [132.751186, 33.783771], [132.75093, 33.783751], [132.750812, 33.783771], [132.750484, 33.783851], [132.75016, 33.783971], [132.750027, 33.784023], [132.749953, 33.784072], [132.749918, 33.784162], [132.749888, 33.784243], [132.74982, 33.784275], [132.749727, 33.784283], [132.749472, 33.784265], [132.749389, 33.784277], [132.749315, 33.784346], [132.74927, 33.784419], [132.749244, 33.784507], [132.748946, 33.784592], [132.748898, 33.784644], [132.748484, 33.784663], [132.748426, 33.784664], [132.748426, 33.784664], [132.748493, 33.784813], [132.748576, 33.784998], [132.748661, 33.785151], [132.748693, 33.785214], [132.748799, 33.785422], [132.748899, 33.785521], [132.749006, 33.785619], [132.749007, 33.78562], [132.749036, 33.785687], [132.749071, 33.785765], [132.749129, 33.785899], [132.749139, 33.785943], [132.748792, 33.786005], [132.748702, 33.786086], [132.748614, 33.786208], [132.748612, 33.786435], [132.748594, 33.786627], [132.748613, 33.786789], [132.748888, 33.786886], [132.749053, 33.786981], [132.749232, 33.787262], [132.749292, 33.787395], [132.749378, 33.78757], [132.749427, 33.787686], [132.749476, 33.787942], [132.749554, 33.788029], [132.749594, 33.788267], [132.749573, 33.788416], [132.749466, 33.788584], [132.749402, 33.788647], [132.749289, 33.788717], [132.749122, 33.788742], [132.748748, 33.788786], [132.748727, 33.78903], [132.748703, 33.789272], [132.748633, 33.789386], [132.748587, 33.789501], [132.748574, 33.78969], [132.748563, 33.78995], [132.747847, 33.789916], [132.747852, 33.790203], [132.747904, 33.790335], [132.747909, 33.790727], [132.747867, 33.790858], [132.746976, 33.790826], [132.746565, 33.790832], [132.746546, 33.790921], [132.746537, 33.791026], [132.746543, 33.791132], [132.746577, 33.791369], [132.746599, 33.791589], [132.746631, 33.791919]]]}}, {"type": "Feature", "properties": {"name": "神崎", "jinko": 1577, "setai": 492, "bus_stops": 3, "bus_boarding": 3.0, "demand": 6, "clat": 33.789482, "clng": 132.741126}, "geometry": {"type": "MultiPolygon", "coordinates": [[[[132.746599, 33.791589], [132.746577, 33.791369], [132.746543, 33.791132], [132.746537, 33.791026], [132.746546, 33.790921], [132.746565, 33.790832], [132.746976, 33.790826], [132.747867, 33.790858], [132.747909, 33.790727], [132.747904, 33.790335], [132.747852, 33.790203], [132.747847, 33.789916], [132.748563, 33.78995], [132.748574, 33.78969], [132.748587, 33.789501], [132.748633, 33.789386], [132.748703, 33.789272], [132.748727, 33.78903], [132.748748, 33.788786], [132.749122, 33.788742], [132.749289, 33.788717], [132.749402, 33.788647], [132.749466, 33.788584], [132.749573, 33.788416], [132.749594, 33.788267], [132.749554, 33.788029], [132.749476, 33.787942], [132.749427, 33.787686], [132.749378, 33.78757], [132.749292, 33.787395], [132.749232, 33.787262], [132.749053, 33.786981], [132.748888, 33.786886], [132.748613, 33.786789], [132.748594, 33.786627], [132.748612, 33.786435], [132.748614, 33.786208], [132.748702, 33.786086], [132.748792, 33.786005], [132.749139, 33.785943], [132.749129, 33.785899], [132.749071, 33.785765], [132.749036, 33.785687], [132.749007, 33.78562], [132.749006, 33.785619], [132.748899, 33.785521], [132.748799, 33.785422], [132.748693, 33.785214], [132.748661, 33.785151], [132.748576, 33.784998], [132.748493, 33.784813], [132.748426, 33.784664], [132.748325, 33.784666], [132.748163, 33.784669], [132.748159, 33.784491], [132.748138, 33.784453], [132.748097, 33.784422], [132.748064, 33.784408], [132.747978, 33.784382], [132.747909, 33.784368], [132.747835, 33.784359], [132.747746, 33.784359], [132.747731, 33.784359], [132.747572, 33.784363], [132.74757, 33.784363], [132.747568, 33.784363], [132.747447, 33.784371], [132.747427, 33.784373], [132.747424, 33.784373], [132.747376, 33.784378], [132.747228, 33.784394], [132.747097, 33.784404], [132.746839, 33.78441], [132.746818, 33.784411], [132.746494, 33.784414], [132.74647, 33.78428], [132.746423, 33.784145], [132.746407, 33.784112], [132.746397, 33.784106], [132.746383, 33.784098], [132.746372, 33.784091], [132.746363, 33.784086], [132.746357, 33.784082], [132.74635, 33.784078], [132.746329, 33.784066], [132.746287, 33.784031], [132.746255, 33.783995], [132.746243, 33.783969], [132.746229, 33.783901], [132.745874, 33.78392], [132.745872, 33.783921], [132.745681, 33.783913], [132.745394, 33.783858], [132.745288, 33.783844], [132.745287, 33.783844], [132.745068, 33.783819], [132.745076, 33.783773], [132.744854, 33.783759], [132.744733, 33.783752], [132.744309, 33.783693], [132.743717, 33.783593], [132.742863, 33.783524], [132.742394, 33.783447], [132.741885, 33.783383], [132.741916, 33.783501], [132.741916, 33.783559], [132.741825, 33.78373], [132.741788, 33.783828], [132.741787, 33.783936], [132.741802, 33.784031], [132.741781, 33.784163], [132.741706, 33.784341], [132.741941, 33.78437], [132.742195, 33.784456], [132.742448, 33.784493], [132.742606, 33.784514], [132.742571, 33.78471], [132.742562, 33.784896], [132.742571, 33.785227], [132.742605, 33.78546], [132.742665, 33.785569], [132.742719, 33.785628], [132.742808, 33.785723], [132.742888, 33.785791], [132.743005, 33.78588], [132.74311, 33.785899], [132.743292, 33.785922], [132.743527, 33.785934], [132.743644, 33.785938], [132.743677, 33.785867], [132.744155, 33.785826], [132.744097, 33.785981], [132.744711, 33.786147], [132.744784, 33.786165], [132.744775, 33.786202], [132.74475, 33.78635], [132.744924, 33.786382], [132.745181, 33.786422], [132.745155, 33.786581], [132.744886, 33.786527], [132.744778, 33.786857], [132.744713, 33.786877], [132.744592, 33.786843], [132.744386, 33.786797], [132.74422, 33.786773], [132.744135, 33.786705], [132.744079, 33.786644], [132.743813, 33.786493], [132.743787, 33.786706], [132.743289, 33.786689], [132.743283, 33.786456], [132.743174, 33.786425], [132.74281, 33.786328], [132.742487, 33.78632], [132.742422, 33.786322], [132.742248, 33.786338], [132.741881, 33.786355], [132.741751, 33.786351], [132.741525, 33.786329], [132.741528, 33.786454], [132.74145, 33.786555], [132.741299, 33.786692], [132.741168, 33.78682], [132.741004, 33.786961], [132.740892, 33.787054], [132.740755, 33.787142], [132.740641, 33.787206], [132.740538, 33.787203], [132.740449, 33.787183], [132.740337, 33.787104], [132.740114, 33.787089], [132.739904, 33.787081], [132.739725, 33.787073], [132.739633, 33.787032], [132.739488, 33.787014], [132.739157, 33.786961], [132.739051, 33.786957], [132.738853, 33.786997], [132.738626, 33.786992], [132.738408, 33.786995], [132.738409, 33.786972], [132.738284, 33.786927], [132.737875, 33.786915], [132.737633, 33.786889], [132.737459, 33.786878], [132.737373, 33.786895], [132.737219, 33.786982], [132.737105, 33.787028], [132.736992, 33.787021], [132.736874, 33.786986], [132.736738, 33.786881], [132.736588, 33.786836], [132.736378, 33.786831], [132.736118, 33.786873], [132.736, 33.786934], [132.735911, 33.78699], [132.735822, 33.787], [132.735688, 33.786976], [132.73565, 33.786984], [132.735647, 33.787026], [132.735671, 33.787084], [132.735674, 33.787178], [132.735633, 33.787266], [132.735535, 33.787356], [132.735381, 33.787312], [132.73528, 33.787331], [132.735122, 33.787367], [132.734967, 33.787345], [132.734681, 33.787341], [132.734442, 33.787326], [132.734262, 33.787289], [132.73413, 33.787334], [132.734041, 33.787324], [132.733935, 33.787347], [132.73383, 33.787366], [132.733721, 33.787308], [132.733613, 33.787246], [132.733516, 33.787165], [132.733525, 33.787111], [132.733675, 33.787048], [132.733699, 33.787031], [132.7337, 33.78697], [132.733644, 33.786929], [132.733539, 33.786891], [132.733454, 33.786901], [132.733316, 33.786941], [132.73319, 33.786957], [132.733061, 33.786922], [132.732948, 33.786894], [132.73283, 33.786927], [132.732749, 33.786917], [132.732652, 33.786879], [132.7325, 33.78687], [132.732512, 33.787893], [132.732513, 33.7886], [132.732526, 33.788787], [132.733691, 33.788836], [132.73368, 33.788889], [132.733638, 33.790757], [132.733613, 33.79177], [132.733601, 33.792253], [132.733566, 33.793034], [132.733567, 33.793274], [132.734826, 33.793236], [132.734831, 33.793859], [132.734825, 33.794352], [132.734801, 33.79484], [132.735058, 33.794845], [132.735612, 33.794872], [132.736066, 33.794827], [132.736431, 33.79485], [132.737196, 33.794816], [132.73839, 33.794785], [132.739375, 33.79475], [132.739637, 33.794731], [132.739969, 33.794763], [132.740262, 33.794762], [132.740744, 33.794792], [132.740746, 33.794325], [132.7408, 33.79431], [132.7408, 33.793463], [132.740796, 33.792999], [132.740776, 33.792741], [132.740978, 33.792753], [132.741193, 33.792774], [132.741517, 33.79279], [132.74193, 33.792816], [132.742152, 33.792831], [132.742432, 33.792819], [132.742691, 33.792804], [132.742894, 33.792781], [132.7429, 33.792862], [132.743008, 33.792853], [132.743116, 33.79286], [132.743506, 33.792856], [132.74553, 33.79284], [132.745501, 33.791994], [132.746631, 33.791919], [132.746599, 33.791589]]], [[[132.746689, 33.792449], [132.747897, 33.792395], [132.747885, 33.792021], [132.747867, 33.791869], [132.746631, 33.791919], [132.746689, 33.792449]]]]}}, {"type": "Feature", "properties": {"name": "鶴吉", "jinko": 819, "setai": 274, "bus_stops": 2, "bus_boarding": 0.7, "demand": 8, "clat": 33.782204, "clng": 132.738463}, "geometry": {"type": "Polygon", "coordinates": [[[132.745076, 33.783773], [132.745076, 33.783773], [132.745076, 33.783773], [132.745078, 33.783766], [132.745146, 33.783396], [132.745153, 33.783331], [132.745152, 33.783306], [132.745188, 33.783306], [132.745225, 33.783292], [132.745242, 33.783286], [132.745308, 33.783182], [132.745373, 33.783069], [132.745435, 33.782855], [132.74548, 33.782644], [132.745487, 33.782371], [132.745479, 33.782008], [132.745468, 33.781645], [132.745451, 33.781355], [132.74544, 33.780992], [132.745446, 33.78084], [132.745457, 33.780559], [132.745478, 33.780199], [132.745515, 33.779725], [132.745511, 33.77935], [132.745499, 33.779078], [132.745442, 33.777977], [132.743745, 33.77793], [132.742828, 33.777922], [132.742554, 33.777916], [132.742221, 33.777914], [132.742021, 33.777909], [132.741879, 33.777916], [132.741802, 33.777917], [132.741571, 33.777918], [132.740994, 33.777899], [132.740764, 33.777897], [132.740377, 33.777899], [132.740243, 33.777904], [132.740003, 33.777923], [132.739763, 33.777946], [132.739601, 33.777941], [132.739157, 33.777905], [132.73883, 33.777903], [132.738431, 33.777854], [132.738399, 33.777853], [132.73825, 33.777845], [132.737868, 33.77783], [132.737413, 33.777807], [132.736924, 33.777796], [132.736377, 33.777784], [132.736078, 33.777787], [132.735604, 33.77778], [132.735049, 33.77777], [132.734496, 33.777763], [132.733713, 33.777754], [132.733473, 33.777773], [132.733121, 33.777766], [132.732872, 33.777765], [132.732656, 33.777768], [132.732537, 33.777763], [132.732537, 33.777763], [132.73262, 33.777956], [132.732655, 33.778132], [132.732647, 33.778353], [132.732617, 33.778505], [132.732579, 33.778674], [132.732533, 33.77887], [132.732426, 33.779035], [132.732434, 33.779112], [132.732397, 33.779163], [132.732378, 33.779259], [132.73237, 33.779436], [132.732339, 33.77972], [132.732381, 33.780021], [132.732384, 33.780156], [132.732332, 33.780467], [132.732306, 33.780928], [132.732216, 33.781076], [132.732173, 33.781312], [132.73217, 33.781643], [132.73217, 33.781643], [132.732192, 33.781941], [132.732253, 33.782333], [132.732295, 33.782644], [132.732321, 33.782857], [132.732344, 33.783054], [132.732366, 33.783287], [132.732408, 33.783632], [132.732448, 33.78388], [132.732498, 33.784181], [132.732534, 33.784501], [132.732534, 33.784501], [132.732546, 33.784635], [132.732541, 33.78478], [132.732532, 33.784895], [132.732499, 33.784982], [132.732485, 33.785141], [132.732491, 33.785422], [132.732486, 33.785557], [132.732502, 33.785663], [132.732504, 33.785845], [132.732501, 33.786158], [132.732502, 33.786513], [132.732498, 33.786679], [132.7325, 33.78687], [132.7325, 33.78687], [132.732652, 33.786879], [132.732749, 33.786917], [132.73283, 33.786927], [132.732948, 33.786894], [132.733061, 33.786922], [132.73319, 33.786957], [132.733316, 33.786941], [132.733454, 33.786901], [132.733539, 33.786891], [132.733644, 33.786929], [132.7337, 33.78697], [132.733699, 33.787031], [132.733675, 33.787048], [132.733525, 33.787111], [132.733516, 33.787165], [132.733613, 33.787246], [132.733721, 33.787308], [132.73383, 33.787366], [132.733935, 33.787347], [132.734041, 33.787324], [132.73413, 33.787334], [132.734262, 33.787289], [132.734442, 33.787326], [132.734681, 33.787341], [132.734967, 33.787345], [132.735122, 33.787367], [132.73528, 33.787331], [132.735381, 33.787312], [132.735535, 33.787356], [132.735633, 33.787266], [132.735674, 33.787178], [132.735671, 33.787084], [132.735647, 33.787026], [132.73565, 33.786984], [132.735688, 33.786976], [132.735822, 33.787], [132.735911, 33.78699], [132.736, 33.786934], [132.736118, 33.786873], [132.736378, 33.786831], [132.736588, 33.786836], [132.736738, 33.786881], [132.736874, 33.786986], [132.736992, 33.787021], [132.737105, 33.787028], [132.737219, 33.786982], [132.737373, 33.786895], [132.737459, 33.786878], [132.737633, 33.786889], [132.737875, 33.786915], [132.738284, 33.786927], [132.738409, 33.786972], [132.738408, 33.786995], [132.738626, 33.786992], [132.738853, 33.786997], [132.739051, 33.786957], [132.739157, 33.786961], [132.739488, 33.787014], [132.739633, 33.787032], [132.739725, 33.787073], [132.739904, 33.787081], [132.740114, 33.787089], [132.740337, 33.787104], [132.740449, 33.787183], [132.740538, 33.787203], [132.740641, 33.787206], [132.740755, 33.787142], [132.740892, 33.787054], [132.741004, 33.786961], [132.741168, 33.78682], [132.741299, 33.786692], [132.74145, 33.786555], [132.741528, 33.786454], [132.741525, 33.786329], [132.741751, 33.786351], [132.741881, 33.786355], [132.742248, 33.786338], [132.742422, 33.786322], [132.742487, 33.78632], [132.74281, 33.786328], [132.743174, 33.786425], [132.743283, 33.786456], [132.743289, 33.786689], [132.743787, 33.786706], [132.743813, 33.786493], [132.744079, 33.786644], [132.744135, 33.786705], [132.74422, 33.786773], [132.744386, 33.786797], [132.744592, 33.786843], [132.744713, 33.786877], [132.744778, 33.786857], [132.744886, 33.786527], [132.745155, 33.786581], [132.745181, 33.786422], [132.744924, 33.786382], [132.74475, 33.78635], [132.744775, 33.786202], [132.744784, 33.786165], [132.744711, 33.786147], [132.744097, 33.785981], [132.744155, 33.785826], [132.743677, 33.785867], [132.743644, 33.785938], [132.743527, 33.785934], [132.743292, 33.785922], [132.74311, 33.785899], [132.743005, 33.78588], [132.742888, 33.785791], [132.742808, 33.785723], [132.742719, 33.785628], [132.742665, 33.785569], [132.742605, 33.78546], [132.742571, 33.785227], [132.742562, 33.784896], [132.742571, 33.78471], [132.742606, 33.784514], [132.742448, 33.784493], [132.742195, 33.784456], [132.741941, 33.78437], [132.741706, 33.784341], [132.741781, 33.784163], [132.741802, 33.784031], [132.741787, 33.783936], [132.741788, 33.783828], [132.741825, 33.78373], [132.741916, 33.783559], [132.741916, 33.783501], [132.741885, 33.783383], [132.742394, 33.783447], [132.742863, 33.783524], [132.743717, 33.783593], [132.744309, 33.783693], [132.744733, 33.783752], [132.744854, 33.783759], [132.745076, 33.783773]]]}}, {"type": "Feature", "properties": {"name": "横田", "jinko": 262, "setai": 99, "bus_stops": 1, "bus_boarding": 0.2, "demand": 3, "clat": 33.777018, "clng": 132.728393}, "geometry": {"type": "Polygon", "coordinates": [[[132.73217, 33.781643], [132.732173, 33.781312], [132.732216, 33.781076], [132.732306, 33.780928], [132.732332, 33.780467], [132.732384, 33.780156], [132.732381, 33.780021], [132.732339, 33.77972], [132.73237, 33.779436], [132.732378, 33.779259], [132.732397, 33.779163], [132.732434, 33.779112], [132.732426, 33.779035], [132.732533, 33.77887], [132.732579, 33.778674], [132.732617, 33.778505], [132.732647, 33.778353], [132.732655, 33.778132], [132.73262, 33.777956], [132.732537, 33.777763], [132.732537, 33.777763], [132.73251, 33.777763], [132.73245, 33.777722], [132.732403, 33.777631], [132.732355, 33.777508], [132.732327, 33.777378], [132.732328, 33.77728], [132.732339, 33.777243], [132.732348, 33.77721], [132.732379, 33.777112], [132.732426, 33.776992], [132.732505, 33.776862], [132.732565, 33.776769], [132.732595, 33.776683], [132.732606, 33.776532], [132.732595, 33.776253], [132.732572, 33.775964], [132.732565, 33.775839], [132.732567, 33.775568], [132.732599, 33.775374], [132.732568, 33.775047], [132.732546, 33.774757], [132.732548, 33.774454], [132.73252, 33.774126], [132.732494, 33.773962], [132.732474, 33.773779], [132.73247, 33.773677], [132.732466, 33.773563], [132.732454, 33.773317], [132.732434, 33.773103], [132.732425, 33.772944], [132.732369, 33.772617], [132.732371, 33.77247], [132.732427, 33.772196], [132.732458, 33.772017], [132.732425, 33.771578], [132.729252, 33.771674], [132.728836, 33.771709], [132.727766, 33.771798], [132.725655, 33.771864], [132.725577, 33.771872], [132.725523, 33.771904], [132.725413, 33.772091], [132.725334, 33.772222], [132.725274, 33.772413], [132.725292, 33.772552], [132.725334, 33.772773], [132.725434, 33.773019], [132.725473, 33.773129], [132.725449, 33.77355], [132.725438, 33.774033], [132.72545, 33.774311], [132.725422, 33.774666], [132.725425, 33.774854], [132.725404, 33.775313], [132.725401, 33.775985], [132.725399, 33.776736], [132.725408, 33.776998], [132.7254, 33.77716], [132.725388, 33.777398], [132.725378, 33.77773], [132.724981, 33.777724], [132.724184, 33.777719], [132.723475, 33.777665], [132.723143, 33.777647], [132.722779, 33.777629], [132.722385, 33.777629], [132.722385, 33.777629], [132.722682, 33.777725], [132.722856, 33.777808], [132.72296, 33.777927], [132.72302, 33.778035], [132.723031, 33.778116], [132.723054, 33.778279], [132.723097, 33.778414], [132.723157, 33.778509], [132.723237, 33.778591], [132.723342, 33.778659], [132.723284, 33.77875], [132.723235, 33.778888], [132.723117, 33.778874], [132.723, 33.778866], [132.722972, 33.779329], [132.722959, 33.779856], [132.722954, 33.780343], [132.722938, 33.780598], [132.72293, 33.78106], [132.722891, 33.781102], [132.722919, 33.781562], [132.72337, 33.781557], [132.723672, 33.781563], [132.723834, 33.781561], [132.72398, 33.781562], [132.724263, 33.781564], [132.724628, 33.781549], [132.725049, 33.781546], [132.72543, 33.781547], [132.725939, 33.781581], [132.726366, 33.781609], [132.726637, 33.781618], [132.726957, 33.781633], [132.727374, 33.781663], [132.72768, 33.78168], [132.727813, 33.781718], [132.728748, 33.78169], [132.729214, 33.781686], [132.729708, 33.781692], [132.7302, 33.78168], [132.730593, 33.781669], [132.730803, 33.781664], [132.731099, 33.781659], [132.731354, 33.781643], [132.731567, 33.78165], [132.731818, 33.781645], [132.731988, 33.781652], [132.73217, 33.781643]]]}}, {"type": "Feature", "properties": {"name": "大溝", "jinko": 424, "setai": 146, "bus_stops": 1, "bus_boarding": 0.2, "demand": 29, "clat": 33.781923, "clng": 132.724251}, "geometry": {"type": "Polygon", "coordinates": [[[132.732534, 33.784501], [132.732498, 33.784181], [132.732448, 33.78388], [132.732408, 33.783632], [132.732366, 33.783287], [132.732344, 33.783054], [132.732321, 33.782857], [132.732295, 33.782644], [132.732253, 33.782333], [132.732192, 33.781941], [132.73217, 33.781643], [132.73217, 33.781643], [132.731988, 33.781652], [132.731818, 33.781645], [132.731567, 33.78165], [132.731354, 33.781643], [132.731099, 33.781659], [132.730803, 33.781664], [132.730593, 33.781669], [132.7302, 33.78168], [132.729708, 33.781692], [132.729214, 33.781686], [132.728748, 33.78169], [132.727813, 33.781718], [132.72768, 33.78168], [132.727374, 33.781663], [132.726957, 33.781633], [132.726637, 33.781618], [132.726366, 33.781609], [132.725939, 33.781581], [132.72543, 33.781547], [132.725049, 33.781546], [132.724628, 33.781549], [132.724263, 33.781564], [132.72398, 33.781562], [132.723834, 33.781561], [132.723672, 33.781563], [132.72337, 33.781557], [132.722919, 33.781562], [132.722891, 33.781102], [132.72293, 33.78106], [132.722938, 33.780598], [132.722954, 33.780343], [132.722959, 33.779856], [132.722972, 33.779329], [132.723, 33.778866], [132.723117, 33.778874], [132.723235, 33.778888], [132.723284, 33.77875], [132.723342, 33.778659], [132.723237, 33.778591], [132.723157, 33.778509], [132.723097, 33.778414], [132.723054, 33.778279], [132.723031, 33.778116], [132.72302, 33.778035], [132.72296, 33.777927], [132.722856, 33.777808], [132.722682, 33.777725], [132.722385, 33.777629], [132.722385, 33.777629], [132.722189, 33.777629], [132.721259, 33.777639], [132.721, 33.777621], [132.720647, 33.777619], [132.720477, 33.777618], [132.718894, 33.777594], [132.718301, 33.777579], [132.718301, 33.777579], [132.718304, 33.777588], [132.718276, 33.778598], [132.718256, 33.779474], [132.718204, 33.779591], [132.718231, 33.780247], [132.718234, 33.780543], [132.718214, 33.780821], [132.71816, 33.781454], [132.71816, 33.781803], [132.718167, 33.782485], [132.718167, 33.782485], [132.718424, 33.782473], [132.719345, 33.782518], [132.719351, 33.78252], [132.719485, 33.782497], [132.719538, 33.782478], [132.719688, 33.782466], [132.719986, 33.782474], [132.720648, 33.782528], [132.721083, 33.782537], [132.7213, 33.782546], [132.721495, 33.782537], [132.721681, 33.782566], [132.721911, 33.782639], [132.722154, 33.782637], [132.722591, 33.78265], [132.722744, 33.782728], [132.722861, 33.78281], [132.722864, 33.782942], [132.722851, 33.783481], [132.722874, 33.784072], [132.722872, 33.784508], [132.722857, 33.784806], [132.722861, 33.785068], [132.722861, 33.785323], [132.722848, 33.785427], [132.722848, 33.785427], [132.723026, 33.785428], [132.723323, 33.785435], [132.72355, 33.785447], [132.72408, 33.785467], [132.724663, 33.785471], [132.725226, 33.785495], [132.725615, 33.78549], [132.725933, 33.785453], [132.726476, 33.78541], [132.726966, 33.785382], [132.727205, 33.78536], [132.727479, 33.785343], [132.727811, 33.785305], [132.728253, 33.785196], [132.728574, 33.78509], [132.728628, 33.785062], [132.72872, 33.785007], [132.728846, 33.784916], [132.728944, 33.784802], [132.729022, 33.784669], [132.729253, 33.784122], [132.729443, 33.783684], [132.729525, 33.783594], [132.729765, 33.783484], [132.729972, 33.783438], [132.730186, 33.783432], [132.730437, 33.783461], [132.73068, 33.783513], [132.730889, 33.783609], [132.731099, 33.783749], [132.731295, 33.783936], [132.731408, 33.784068], [132.731602, 33.784237], [132.731814, 33.784338], [132.732069, 33.78441], [132.732396, 33.784477], [132.732534, 33.784501]]]}}, {"type": "Feature", "properties": {"name": "永田", "jinko": 416, "setai": 155, "bus_stops": 1, "bus_boarding": 1.5, "demand": 3, "clat": 33.788165, "clng": 132.726298}, "geometry": {"type": "Polygon", "coordinates": [[[132.7325, 33.78687], [132.732498, 33.786679], [132.732502, 33.786513], [132.732501, 33.786158], [132.732504, 33.785845], [132.732502, 33.785663], [132.732486, 33.785557], [132.732491, 33.785422], [132.732485, 33.785141], [132.732499, 33.784982], [132.732532, 33.784895], [132.732541, 33.78478], [132.732546, 33.784635], [132.732534, 33.784501], [132.732534, 33.784501], [132.732396, 33.784477], [132.732069, 33.78441], [132.731814, 33.784338], [132.731602, 33.784237], [132.731408, 33.784068], [132.731295, 33.783936], [132.731099, 33.783749], [132.730889, 33.783609], [132.73068, 33.783513], [132.730437, 33.783461], [132.730186, 33.783432], [132.729972, 33.783438], [132.729765, 33.783484], [132.729525, 33.783594], [132.729443, 33.783684], [132.729253, 33.784122], [132.729022, 33.784669], [132.728944, 33.784802], [132.728846, 33.784916], [132.72872, 33.785007], [132.728628, 33.785062], [132.728574, 33.78509], [132.728253, 33.785196], [132.727811, 33.785305], [132.727479, 33.785343], [132.727205, 33.78536], [132.726966, 33.785382], [132.726476, 33.78541], [132.725933, 33.785453], [132.725615, 33.78549], [132.725226, 33.785495], [132.724663, 33.785471], [132.72408, 33.785467], [132.72355, 33.785447], [132.723323, 33.785435], [132.723026, 33.785428], [132.722848, 33.785427], [132.722848, 33.785427], [132.722836, 33.785649], [132.722875, 33.785794], [132.722901, 33.78598], [132.722916, 33.786139], [132.722927, 33.786284], [132.72293, 33.786403], [132.722908, 33.786582], [132.722879, 33.786669], [132.722869, 33.786845], [132.72289, 33.787234], [132.722913, 33.78759], [132.722912, 33.788151], [132.722921, 33.788543], [132.722883, 33.788658], [132.722879, 33.788712], [132.722895, 33.788753], [132.722911, 33.78878], [132.722934, 33.788827], [132.722926, 33.788858], [132.722922, 33.788885], [132.722885, 33.788962], [132.722843, 33.78909], [132.722789, 33.789262], [132.722789, 33.789262], [132.722715, 33.789339], [132.722613, 33.78945], [132.722429, 33.789652], [132.722294, 33.789779], [132.722132, 33.789778], [132.72181, 33.789772], [132.72182, 33.789888], [132.721822, 33.790032], [132.721805, 33.790185], [132.721753, 33.79034], [132.721731, 33.790456], [132.721722, 33.790581], [132.721714, 33.790766], [132.721703, 33.790949], [132.721716, 33.791128], [132.721743, 33.791296], [132.721773, 33.791573], [132.721768, 33.791633], [132.721759, 33.791724], [132.721747, 33.791762], [132.7217, 33.791855], [132.721664, 33.791938], [132.721624, 33.792024], [132.721529, 33.792214], [132.721453, 33.792339], [132.721416, 33.792405], [132.721322, 33.792598], [132.721256, 33.792711], [132.720904, 33.792706], [132.720533, 33.792699], [132.720511, 33.793155], [132.720447, 33.793166], [132.720348, 33.793179], [132.720341, 33.793582], [132.720376, 33.793973], [132.720376, 33.793973], [132.720445, 33.793878], [132.720506, 33.793813], [132.72056, 33.793771], [132.720622, 33.793733], [132.72069, 33.793703], [132.720744, 33.793692], [132.720842, 33.793682], [132.721119, 33.793682], [132.721448, 33.793684], [132.721887, 33.793696], [132.722127, 33.793698], [132.722365, 33.793686], [132.722552, 33.793673], [132.722703, 33.793612], [132.722802, 33.793541], [132.72288, 33.793425], [132.722909, 33.793324], [132.722923, 33.793212], [132.72294, 33.792905], [132.722958, 33.792517], [132.722981, 33.792137], [132.722994, 33.79191], [132.723038, 33.7918], [132.723156, 33.791733], [132.723235, 33.791718], [132.72336, 33.791701], [132.723442, 33.791699], [132.723567, 33.791699], [132.723932, 33.791699], [132.724161, 33.791697], [132.724808, 33.791701], [132.72501, 33.791704], [132.725157, 33.791669], [132.725261, 33.791592], [132.725337, 33.791479], [132.72536, 33.791339], [132.725402, 33.791062], [132.725449, 33.790916], [132.725504, 33.790836], [132.725572, 33.790783], [132.725629, 33.790759], [132.725705, 33.790751], [132.725792, 33.790735], [132.725853, 33.790729], [132.726007, 33.790709], [132.726164, 33.790693], [132.726308, 33.790679], [132.726468, 33.790662], [132.726676, 33.790666], [132.726978, 33.79068], [132.727109, 33.790682], [132.727782, 33.790717], [132.728185, 33.790731], [132.728457, 33.790741], [132.728664, 33.790722], [132.728734, 33.790697], [132.728892, 33.790591], [132.728961, 33.790488], [132.728999, 33.790359], [132.729002, 33.790037], [132.728981, 33.789668], [132.728962, 33.789393], [132.728958, 33.789113], [132.72896, 33.788809], [132.728962, 33.7886], [132.728959, 33.788375], [132.728964, 33.788187], [132.728979, 33.788073], [132.728991, 33.787993], [132.729038, 33.78791], [132.729092, 33.787874], [132.729164, 33.787827], [132.729257, 33.787795], [132.729361, 33.787775], [132.729447, 33.787769], [132.729536, 33.787767], [132.729711, 33.787759], [132.72988, 33.787733], [132.729966, 33.787698], [132.73002, 33.787653], [132.730092, 33.787573], [132.730148, 33.78751], [132.73015, 33.787444], [132.730164, 33.787309], [132.730176, 33.787211], [132.730177, 33.787083], [132.730181, 33.787006], [132.730111, 33.786891], [132.730064, 33.786774], [132.729819, 33.786795], [132.729831, 33.786442], [132.729827, 33.785869], [132.730082, 33.785885], [132.73016, 33.785892], [132.730489, 33.785891], [132.730976, 33.785885], [132.731143, 33.785886], [132.731343, 33.785831], [132.731388, 33.786078], [132.731394, 33.786203], [132.731403, 33.7864], [132.731428, 33.786866], [132.731528, 33.786843], [132.731628, 33.786831], [132.731699, 33.786871], [132.731728, 33.786912], [132.731788, 33.786934], [132.731957, 33.786881], [132.732028, 33.786899], [132.732121, 33.786936], [132.732242, 33.786931], [132.732378, 33.786913], [132.7325, 33.78687]]]}}, {"type": "Feature", "properties": {"name": "東古泉", "jinko": 522, "setai": 205, "bus_stops": 1, "bus_boarding": 0.1, "demand": 6, "clat": 33.786294, "clng": 132.718737}, "geometry": {"type": "Polygon", "coordinates": [[[132.722789, 33.789262], [132.722843, 33.78909], [132.722885, 33.788962], [132.722922, 33.788885], [132.722926, 33.788858], [132.722934, 33.788827], [132.722911, 33.78878], [132.722895, 33.788753], [132.722879, 33.788712], [132.722883, 33.788658], [132.722921, 33.788543], [132.722912, 33.788151], [132.722913, 33.78759], [132.72289, 33.787234], [132.722869, 33.786845], [132.722879, 33.786669], [132.722908, 33.786582], [132.72293, 33.786403], [132.722927, 33.786284], [132.722916, 33.786139], [132.722901, 33.78598], [132.722875, 33.785794], [132.722836, 33.785649], [132.722848, 33.785427], [132.722848, 33.785427], [132.722861, 33.785323], [132.722861, 33.785068], [132.722857, 33.784806], [132.722872, 33.784508], [132.722874, 33.784072], [132.722851, 33.783481], [132.722864, 33.782942], [132.722861, 33.78281], [132.722744, 33.782728], [132.722591, 33.78265], [132.722154, 33.782637], [132.721911, 33.782639], [132.721681, 33.782566], [132.721495, 33.782537], [132.7213, 33.782546], [132.721083, 33.782537], [132.720648, 33.782528], [132.719986, 33.782474], [132.719688, 33.782466], [132.719538, 33.782478], [132.719485, 33.782497], [132.719351, 33.78252], [132.719345, 33.782518], [132.718424, 33.782473], [132.718167, 33.782485], [132.718167, 33.782485], [132.718091, 33.782478], [132.718039, 33.782481], [132.717962, 33.782464], [132.717723, 33.782449], [132.717513, 33.782455], [132.717178, 33.782416], [132.716783, 33.782416], [132.716401, 33.782445], [132.715873, 33.782479], [132.715867, 33.782479], [132.715867, 33.782479], [132.715827, 33.78268], [132.715818, 33.782732], [132.715771, 33.783037], [132.715631, 33.783063], [132.71546, 33.783086], [132.715277, 33.783117], [132.71514, 33.783145], [132.714937, 33.78319], [132.714943, 33.783295], [132.71494, 33.783362], [132.713528, 33.783424], [132.713397, 33.783438], [132.713391, 33.784279], [132.713394, 33.784364], [132.713422, 33.785344], [132.713422, 33.785344], [132.71813, 33.785497], [132.71813, 33.785497], [132.71813, 33.785497], [132.71813, 33.785497], [132.718129, 33.785746], [132.718322, 33.78575], [132.718328, 33.786105], [132.718128, 33.786095], [132.718126, 33.786095], [132.718123, 33.786433], [132.718164, 33.788438], [132.718272, 33.788507], [132.718252, 33.789281], [132.718256, 33.789822], [132.718801, 33.789825], [132.719166, 33.790182], [132.719222, 33.790235], [132.719182, 33.790271], [132.719099, 33.79038], [132.719093, 33.790453], [132.719056, 33.79062], [132.718847, 33.790866], [132.718777, 33.790962], [132.718744, 33.791023], [132.718725, 33.791066], [132.718702, 33.791134], [132.718679, 33.791221], [132.718659, 33.791314], [132.718648, 33.791385], [132.718635, 33.791442], [132.71857, 33.791434], [132.718324, 33.791403], [132.718288, 33.791399], [132.718184, 33.791493], [132.717896, 33.791753], [132.717669, 33.791959], [132.717658, 33.791964], [132.71764, 33.792252], [132.717384, 33.79228], [132.716885, 33.792284], [132.716868, 33.792284], [132.716857, 33.792295], [132.716504, 33.79229], [132.716379, 33.792211], [132.715856, 33.791964], [132.712325, 33.790351], [132.712237, 33.790375], [132.712221, 33.790404], [132.712137, 33.790747], [132.712075, 33.790996], [132.71201, 33.79129], [132.71201, 33.79129], [132.711987, 33.791417], [132.711985, 33.791478], [132.711953, 33.791773], [132.711922, 33.792083], [132.711912, 33.792176], [132.711899, 33.792241], [132.712725, 33.792283], [132.713492, 33.792285], [132.713708, 33.792285], [132.713936, 33.792282], [132.714326, 33.792276], [132.714684, 33.792276], [132.715333, 33.79228], [132.715529, 33.792279], [132.715724, 33.792279], [132.715905, 33.792277], [132.715929, 33.792428], [132.715991, 33.792429], [132.716091, 33.792435], [132.716228, 33.79243], [132.716378, 33.792437], [132.716528, 33.792429], [132.716709, 33.79244], [132.716734, 33.792434], [132.716784, 33.792427], [132.716874, 33.792295], [132.717386, 33.792288], [132.717629, 33.792262], [132.71764, 33.792261], [132.717653, 33.792259], [132.717653, 33.792251], [132.717669, 33.791971], [132.718542, 33.792298], [132.718752, 33.792374], [132.718827, 33.792212], [132.718881, 33.792117], [132.719016, 33.791867], [132.719067, 33.791751], [132.719166, 33.791457], [132.719207, 33.79132], [132.719276, 33.79118], [132.71933, 33.791058], [132.71941, 33.790907], [132.719624, 33.79061], [132.719696, 33.790556], [132.719743, 33.790487], [132.719971, 33.790153], [132.720426, 33.789468], [132.72048, 33.7894], [132.720488, 33.789322], [132.720501, 33.789227], [132.720675, 33.789232], [132.720789, 33.789233], [132.720926, 33.789237], [132.721157, 33.789235], [132.721473, 33.78924], [132.721886, 33.789246], [132.722323, 33.789259], [132.722789, 33.789262]]]}}, {"type": "Feature", "properties": {"name": "大間", "jinko": 403, "setai": 148, "bus_stops": 1, "bus_boarding": 2.1, "demand": 0, "clat": 33.800233, "clng": 132.738985}, "geometry": {"type": "Polygon", "coordinates": [[[132.743345, 33.805523], [132.743235, 33.804862], [132.743177, 33.804551], [132.743146, 33.804348], [132.743127, 33.804199], [132.743093, 33.803915], [132.743065, 33.803649], [132.743027, 33.803335], [132.743037, 33.803132], [132.743057, 33.802747], [132.7431, 33.802088], [132.743138, 33.801463], [132.743165, 33.800884], [132.743184, 33.800546], [132.743199, 33.800249], [132.743211, 33.799776], [132.743533, 33.7998], [132.74354, 33.799163], [132.743543, 33.7989], [132.743239, 33.798703], [132.742867, 33.79846], [132.742894, 33.797888], [132.74315, 33.797886], [132.743278, 33.797889], [132.743305, 33.797655], [132.743256, 33.797345], [132.743199, 33.796719], [132.743066, 33.796704], [132.74241, 33.796641], [132.74241, 33.796638], [132.742421, 33.796079], [132.742685, 33.796092], [132.742705, 33.79609], [132.74314, 33.796097], [132.743139, 33.796004], [132.743111, 33.795344], [132.743107, 33.795212], [132.742852, 33.795114], [132.74286, 33.794994], [132.742852, 33.794927], [132.742852, 33.794927], [132.742663, 33.794923], [132.742377, 33.794912], [132.741558, 33.794871], [132.740744, 33.794792], [132.740744, 33.794792], [132.740262, 33.794762], [132.739969, 33.794763], [132.739637, 33.794731], [132.739375, 33.79475], [132.73839, 33.794785], [132.737196, 33.794816], [132.736431, 33.79485], [132.736066, 33.794827], [132.735612, 33.794872], [132.735058, 33.794845], [132.734801, 33.79484], [132.734801, 33.79484], [132.734811, 33.795335], [132.734812, 33.796068], [132.734829, 33.796651], [132.734843, 33.797368], [132.735072, 33.797391], [132.735118, 33.797481], [132.735123, 33.79847], [132.735044, 33.798491], [132.734886, 33.79851], [132.734882, 33.799214], [132.735299, 33.799214], [132.735271, 33.800082], [132.735651, 33.800118], [132.735773, 33.800102], [132.735782, 33.800399], [132.73608, 33.800406], [132.736103, 33.802074], [132.734354, 33.802486], [132.733606, 33.802621], [132.733684, 33.802983], [132.733809, 33.803547], [132.733808, 33.803557], [132.733823, 33.80519], [132.733823, 33.80519], [132.734133, 33.805192], [132.734145, 33.805192], [132.734386, 33.805187], [132.734527, 33.805215], [132.735069, 33.805237], [132.737964, 33.805388], [132.740764, 33.805469], [132.742605, 33.805529], [132.743345, 33.805523]]]}}, {"type": "Feature", "properties": {"name": "上高柳", "jinko": 1199, "setai": 499, "bus_stops": 2, "bus_boarding": 2.3, "demand": 3, "clat": 33.79954, "clng": 132.731404}, "geometry": {"type": "MultiPolygon", "coordinates": [[[[132.733808, 33.803557], [132.733809, 33.803547], [132.733684, 33.802983], [132.733606, 33.802621], [132.734354, 33.802486], [132.736103, 33.802074], [132.73608, 33.800406], [132.735782, 33.800399], [132.735773, 33.800102], [132.735651, 33.800118], [132.735271, 33.800082], [132.735299, 33.799214], [132.734882, 33.799214], [132.734886, 33.79851], [132.735044, 33.798491], [132.735123, 33.79847], [132.735118, 33.797481], [132.735072, 33.797391], [132.734843, 33.797368], [132.734829, 33.796651], [132.734812, 33.796068], [132.734811, 33.795335], [132.734801, 33.79484], [132.734825, 33.794352], [132.734831, 33.793859], [132.734826, 33.793236], [132.733567, 33.793274], [132.733568, 33.79376], [132.733556, 33.794136], [132.733176, 33.794143], [132.73292, 33.794152], [132.732803, 33.794161], [132.732564, 33.794187], [132.732442, 33.794203], [132.732421, 33.794311], [132.732399, 33.794446], [132.732158, 33.794453], [132.731769, 33.794501], [132.731323, 33.794596], [132.731213, 33.79463], [132.731188, 33.794683], [132.731183, 33.794775], [132.730818, 33.794757], [132.730521, 33.794761], [132.730178, 33.794759], [132.72991, 33.794743], [132.729581, 33.79472], [132.728992, 33.794662], [132.728813, 33.794649], [132.728492, 33.794653], [132.728224, 33.794651], [132.727769, 33.794667], [132.727789, 33.795774], [132.727795, 33.79595], [132.727802, 33.796814], [132.727815, 33.797319], [132.727826, 33.798598], [132.727815, 33.799127], [132.727826, 33.799487], [132.727803, 33.799599], [132.727796, 33.799638], [132.727777, 33.799728], [132.727772, 33.799865], [132.72777, 33.799936], [132.72776, 33.800123], [132.72776, 33.800132], [132.727764, 33.800419], [132.727585, 33.800426], [132.727586, 33.800452], [132.727598, 33.801665], [132.727599, 33.801667], [132.727643, 33.801667], [132.72779, 33.801659], [132.728038, 33.801657], [132.728092, 33.80346], [132.728119, 33.803653], [132.728074, 33.803687], [132.727997, 33.803737], [132.727891, 33.803804], [132.728296, 33.804423], [132.728472, 33.804698], [132.728596, 33.804884], [132.728674, 33.805011], [132.729045, 33.804993], [132.729617, 33.804987], [132.729916, 33.804999], [132.729988, 33.804999], [132.730227, 33.805001], [132.730488, 33.805013], [132.730749, 33.805025], [132.730776, 33.805027], [132.730886, 33.805036], [132.731195, 33.80504], [132.731257, 33.805041], [132.731299, 33.805041], [132.731755, 33.805067], [132.732038, 33.805104], [132.732494, 33.805119], [132.732951, 33.805142], [132.733451, 33.805166], [132.733818, 33.80519], [132.733823, 33.80519], [132.733808, 33.803557]]], [[[132.726422, 33.801177], [132.726439, 33.801022], [132.726454, 33.800806], [132.726477, 33.800468], [132.726481, 33.800436], [132.726517, 33.800146], [132.726518, 33.800136], [132.726536, 33.799947], [132.726539, 33.799867], [132.726565, 33.799644], [132.726316, 33.799634], [132.726033, 33.799653], [132.725615, 33.799677], [132.725646, 33.800078], [132.725625, 33.800659], [132.725617, 33.800843], [132.725729, 33.801006], [132.725852, 33.801213], [132.726016, 33.801511], [132.726095, 33.80167], [132.726399, 33.801666], [132.726598, 33.80166], [132.72674, 33.801661], [132.726422, 33.801177]]]]}}, {"type": "Feature", "properties": {"name": "恵久美", "jinko": 1099, "setai": 445, "bus_stops": 2, "bus_boarding": 3.0, "demand": 3, "clat": 33.793212, "clng": 132.727763}, "geometry": {"type": "Polygon", "coordinates": [[[132.733567, 33.793274], [132.733566, 33.793034], [132.733601, 33.792253], [132.733613, 33.79177], [132.733638, 33.790757], [132.73368, 33.788889], [132.733691, 33.788836], [132.732526, 33.788787], [132.732513, 33.7886], [132.732512, 33.787893], [132.7325, 33.78687], [132.7325, 33.78687], [132.732378, 33.786913], [132.732242, 33.786931], [132.732121, 33.786936], [132.732028, 33.786899], [132.731957, 33.786881], [132.731788, 33.786934], [132.731728, 33.786912], [132.731699, 33.786871], [132.731628, 33.786831], [132.731528, 33.786843], [132.731428, 33.786866], [132.731403, 33.7864], [132.731394, 33.786203], [132.731388, 33.786078], [132.731343, 33.785831], [132.731143, 33.785886], [132.730976, 33.785885], [132.730489, 33.785891], [132.73016, 33.785892], [132.730082, 33.785885], [132.729827, 33.785869], [132.729831, 33.786442], [132.729819, 33.786795], [132.730064, 33.786774], [132.730111, 33.786891], [132.730181, 33.787006], [132.730177, 33.787083], [132.730176, 33.787211], [132.730164, 33.787309], [132.73015, 33.787444], [132.730148, 33.78751], [132.730092, 33.787573], [132.73002, 33.787653], [132.729966, 33.787698], [132.72988, 33.787733], [132.729711, 33.787759], [132.729536, 33.787767], [132.729447, 33.787769], [132.729361, 33.787775], [132.729257, 33.787795], [132.729164, 33.787827], [132.729092, 33.787874], [132.729038, 33.78791], [132.728991, 33.787993], [132.728979, 33.788073], [132.728964, 33.788187], [132.728959, 33.788375], [132.728962, 33.7886], [132.72896, 33.788809], [132.728958, 33.789113], [132.728962, 33.789393], [132.728981, 33.789668], [132.729002, 33.790037], [132.728999, 33.790359], [132.728961, 33.790488], [132.728892, 33.790591], [132.728734, 33.790697], [132.728664, 33.790722], [132.728457, 33.790741], [132.728185, 33.790731], [132.727782, 33.790717], [132.727109, 33.790682], [132.726978, 33.79068], [132.726676, 33.790666], [132.726468, 33.790662], [132.726308, 33.790679], [132.726164, 33.790693], [132.726007, 33.790709], [132.725853, 33.790729], [132.725792, 33.790735], [132.725705, 33.790751], [132.725629, 33.790759], [132.725572, 33.790783], [132.725504, 33.790836], [132.725449, 33.790916], [132.725402, 33.791062], [132.72536, 33.791339], [132.725337, 33.791479], [132.725261, 33.791592], [132.725157, 33.791669], [132.72501, 33.791704], [132.724808, 33.791701], [132.724161, 33.791697], [132.723932, 33.791699], [132.723567, 33.791699], [132.723442, 33.791699], [132.72336, 33.791701], [132.723235, 33.791718], [132.723156, 33.791733], [132.723038, 33.7918], [132.722994, 33.79191], [132.722981, 33.792137], [132.722958, 33.792517], [132.72294, 33.792905], [132.722923, 33.793212], [132.722909, 33.793324], [132.72288, 33.793425], [132.722802, 33.793541], [132.722703, 33.793612], [132.722552, 33.793673], [132.722365, 33.793686], [132.722127, 33.793698], [132.721887, 33.793696], [132.721448, 33.793684], [132.721119, 33.793682], [132.720842, 33.793682], [132.720744, 33.793692], [132.72069, 33.793703], [132.720622, 33.793733], [132.72056, 33.793771], [132.720506, 33.793813], [132.720445, 33.793878], [132.720376, 33.793973], [132.720376, 33.793973], [132.720357, 33.794164], [132.720361, 33.794501], [132.720366, 33.794763], [132.720399, 33.795525], [132.720349, 33.795754], [132.720257, 33.795867], [132.719874, 33.796166], [132.719584, 33.796394], [132.71923, 33.796668], [132.71923, 33.796668], [132.720806, 33.796601], [132.721709, 33.796569], [132.72224, 33.796559], [132.722675, 33.796584], [132.723237, 33.796604], [132.724156, 33.796657], [132.725162, 33.796706], [132.725465, 33.796829], [132.725484, 33.797424], [132.725485, 33.79795], [132.725659, 33.797947], [132.725647, 33.798615], [132.72564, 33.798946], [132.725616, 33.799225], [132.725615, 33.799677], [132.725615, 33.799677], [132.726033, 33.799653], [132.726316, 33.799634], [132.726565, 33.799644], [132.726539, 33.799867], [132.726536, 33.799947], [132.726518, 33.800136], [132.726517, 33.800146], [132.726481, 33.800436], [132.726477, 33.800468], [132.726454, 33.800806], [132.726439, 33.801022], [132.726422, 33.801177], [132.72674, 33.801661], [132.72674, 33.801661], [132.72714, 33.801674], [132.727599, 33.801667], [132.727599, 33.801667], [132.727598, 33.801665], [132.727586, 33.800452], [132.727585, 33.800426], [132.727764, 33.800419], [132.72776, 33.800132], [132.72776, 33.800123], [132.72777, 33.799936], [132.727772, 33.799865], [132.727777, 33.799728], [132.727796, 33.799638], [132.727803, 33.799599], [132.727826, 33.799487], [132.727815, 33.799127], [132.727826, 33.798598], [132.727815, 33.797319], [132.727802, 33.796814], [132.727795, 33.79595], [132.727789, 33.795774], [132.727769, 33.794667], [132.728224, 33.794651], [132.728492, 33.794653], [132.728813, 33.794649], [132.728992, 33.794662], [132.729581, 33.79472], [132.72991, 33.794743], [132.730178, 33.794759], [132.730521, 33.794761], [132.730818, 33.794757], [132.731183, 33.794775], [132.731188, 33.794683], [132.731213, 33.79463], [132.731323, 33.794596], [132.731769, 33.794501], [132.732158, 33.794453], [132.732399, 33.794446], [132.732421, 33.794311], [132.732442, 33.794203], [132.732564, 33.794187], [132.732803, 33.794161], [132.73292, 33.794152], [132.733176, 33.794143], [132.733556, 33.794136], [132.733568, 33.79376], [132.733567, 33.793274]]]}}, {"type": "Feature", "properties": {"name": "昌農内", "jinko": 1303, "setai": 523, "bus_stops": 2, "bus_boarding": 4.5, "demand": 13, "clat": 33.800006, "clng": 132.719843}, "geometry": {"type": "Polygon", "coordinates": [[[132.71923, 33.796668], [132.71801, 33.796633], [132.716938, 33.796593], [132.714485, 33.796527], [132.714476, 33.796703], [132.714445, 33.797327], [132.714558, 33.797325], [132.714543, 33.797492], [132.714507, 33.79772], [132.714506, 33.797868], [132.714496, 33.798064], [132.714493, 33.798361], [132.71443, 33.798963], [132.714404, 33.799456], [132.714404, 33.799456], [132.714401, 33.799517], [132.714334, 33.799893], [132.714281, 33.800359], [132.714238, 33.801521], [132.714241, 33.802525], [132.714246, 33.802924], [132.714415, 33.802992], [132.714587, 33.803052], [132.714587, 33.803052], [132.714955, 33.803149], [132.715399, 33.803254], [132.715678, 33.803323], [132.71603, 33.8034], [132.716478, 33.8035], [132.716862, 33.803591], [132.717339, 33.803665], [132.717645, 33.803702], [132.717964, 33.803758], [132.718284, 33.803791], [132.718713, 33.803844], [132.719486, 33.803916], [132.720376, 33.804017], [132.720374, 33.803729], [132.721378, 33.803548], [132.721695, 33.803479], [132.721865, 33.803436], [132.721971, 33.803397], [132.722203, 33.803303], [132.724016, 33.802523], [132.724272, 33.802413], [132.724434, 33.802344], [132.724564, 33.802294], [132.724694, 33.802267], [132.725096, 33.802196], [132.725514, 33.802117], [132.725893, 33.80205], [132.726226, 33.801995], [132.726095, 33.80167], [132.726095, 33.80167], [132.726016, 33.801511], [132.725852, 33.801213], [132.725729, 33.801006], [132.725617, 33.800843], [132.725625, 33.800659], [132.725646, 33.800078], [132.725615, 33.799677], [132.725615, 33.799677], [132.725616, 33.799225], [132.72564, 33.798946], [132.725647, 33.798615], [132.725659, 33.797947], [132.725485, 33.79795], [132.725484, 33.797424], [132.725465, 33.796829], [132.725162, 33.796706], [132.724156, 33.796657], [132.723237, 33.796604], [132.722675, 33.796584], [132.72224, 33.796559], [132.721709, 33.796569], [132.720806, 33.796601], [132.71923, 33.796668]]]}}, {"type": "Feature", "properties": {"name": "西高柳", "jinko": 1135, "setai": 451, "bus_stops": 3, "bus_boarding": 4.4, "demand": 0, "clat": 33.80507, "clng": 132.721009}, "geometry": {"type": "Polygon", "coordinates": [[[132.727599, 33.801667], [132.72714, 33.801674], [132.72674, 33.801661], [132.72674, 33.801661], [132.726598, 33.80166], [132.726399, 33.801666], [132.726095, 33.80167], [132.726095, 33.80167], [132.726226, 33.801995], [132.725893, 33.80205], [132.725514, 33.802117], [132.725096, 33.802196], [132.724694, 33.802267], [132.724564, 33.802294], [132.724434, 33.802344], [132.724272, 33.802413], [132.724016, 33.802523], [132.722203, 33.803303], [132.721971, 33.803397], [132.721865, 33.803436], [132.721695, 33.803479], [132.721378, 33.803548], [132.720374, 33.803729], [132.720376, 33.804017], [132.719486, 33.803916], [132.718713, 33.803844], [132.718284, 33.803791], [132.717964, 33.803758], [132.717645, 33.803702], [132.717339, 33.803665], [132.716862, 33.803591], [132.716478, 33.8035], [132.71603, 33.8034], [132.715678, 33.803323], [132.715399, 33.803254], [132.714955, 33.803149], [132.714587, 33.803052], [132.714587, 33.803052], [132.714698, 33.804829], [132.714742, 33.80601], [132.714781, 33.806921], [132.714858, 33.808119], [132.714858, 33.808119], [132.71488, 33.808122], [132.715577, 33.80822], [132.716118, 33.808288], [132.716526, 33.808338], [132.716829, 33.808346], [132.717046, 33.808325], [132.71742, 33.808281], [132.717673, 33.808247], [132.717998, 33.808184], [132.718309, 33.808139], [132.718388, 33.808118], [132.718475, 33.808103], [132.718488, 33.8081], [132.718655, 33.808072], [132.718795, 33.808037], [132.71909, 33.807951], [132.719249, 33.807882], [132.719724, 33.807709], [132.72021, 33.807536], [132.720735, 33.807352], [132.720947, 33.807276], [132.721309, 33.807148], [132.722167, 33.806855], [132.722891, 33.80661], [132.723864, 33.806264], [132.723988, 33.806215], [132.72461, 33.806001], [132.725059, 33.805859], [132.725446, 33.805747], [132.725658, 33.805675], [132.725678, 33.80567], [132.72592, 33.805604], [132.726206, 33.805534], [132.726656, 33.805391], [132.727142, 33.805249], [132.727314, 33.805211], [132.727504, 33.805168], [132.727815, 33.805087], [132.728139, 33.805047], [132.728438, 33.805029], [132.728659, 33.805012], [132.728674, 33.805011], [132.728674, 33.805011], [132.728596, 33.804884], [132.728472, 33.804698], [132.728296, 33.804423], [132.727891, 33.803804], [132.727997, 33.803737], [132.728074, 33.803687], [132.728119, 33.803653], [132.728092, 33.80346], [132.728038, 33.801657], [132.72779, 33.801659], [132.727643, 33.801667], [132.727599, 33.801667]]]}}, {"type": "Feature", "properties": {"name": "西古泉", "jinko": 1858, "setai": 740, "bus_stops": 0, "bus_boarding": 0, "demand": 0, "clat": 33.794435, "clng": 132.714514}, "geometry": {"type": "Polygon", "coordinates": [[[132.71923, 33.796668], [132.719584, 33.796394], [132.719874, 33.796166], [132.720257, 33.795867], [132.720349, 33.795754], [132.720399, 33.795525], [132.720366, 33.794763], [132.720361, 33.794501], [132.720357, 33.794164], [132.720376, 33.793973], [132.720376, 33.793973], [132.720341, 33.793582], [132.720348, 33.793179], [132.720447, 33.793166], [132.720511, 33.793155], [132.720533, 33.792699], [132.720904, 33.792706], [132.721256, 33.792711], [132.721322, 33.792598], [132.721416, 33.792405], [132.721453, 33.792339], [132.721529, 33.792214], [132.721624, 33.792024], [132.721664, 33.791938], [132.7217, 33.791855], [132.721747, 33.791762], [132.721759, 33.791724], [132.721768, 33.791633], [132.721773, 33.791573], [132.721743, 33.791296], [132.721716, 33.791128], [132.721703, 33.790949], [132.721714, 33.790766], [132.721722, 33.790581], [132.721731, 33.790456], [132.721753, 33.79034], [132.721805, 33.790185], [132.721822, 33.790032], [132.72182, 33.789888], [132.72181, 33.789772], [132.722132, 33.789778], [132.722294, 33.789779], [132.722429, 33.789652], [132.722613, 33.78945], [132.722715, 33.789339], [132.722789, 33.789262], [132.722789, 33.789262], [132.722323, 33.789259], [132.721886, 33.789246], [132.721473, 33.78924], [132.721157, 33.789235], [132.720926, 33.789237], [132.720789, 33.789233], [132.720675, 33.789232], [132.720501, 33.789227], [132.720488, 33.789322], [132.72048, 33.7894], [132.720426, 33.789468], [132.719971, 33.790153], [132.719743, 33.790487], [132.719696, 33.790556], [132.719624, 33.79061], [132.71941, 33.790907], [132.71933, 33.791058], [132.719276, 33.79118], [132.719207, 33.79132], [132.719166, 33.791457], [132.719067, 33.791751], [132.719016, 33.791867], [132.718881, 33.792117], [132.718827, 33.792212], [132.718752, 33.792374], [132.718542, 33.792298], [132.717669, 33.791971], [132.717653, 33.792251], [132.717653, 33.792259], [132.71764, 33.792261], [132.717629, 33.792262], [132.717386, 33.792288], [132.716874, 33.792295], [132.716784, 33.792427], [132.716734, 33.792434], [132.716709, 33.79244], [132.716528, 33.792429], [132.716378, 33.792437], [132.716228, 33.79243], [132.716091, 33.792435], [132.715991, 33.792429], [132.715929, 33.792428], [132.715905, 33.792277], [132.715724, 33.792279], [132.715529, 33.792279], [132.715333, 33.79228], [132.714684, 33.792276], [132.714326, 33.792276], [132.713936, 33.792282], [132.713708, 33.792285], [132.713492, 33.792285], [132.712725, 33.792283], [132.711899, 33.792241], [132.711912, 33.792176], [132.711922, 33.792083], [132.711953, 33.791773], [132.711985, 33.791478], [132.711987, 33.791417], [132.71201, 33.79129], [132.71201, 33.79129], [132.71072, 33.791235], [132.710741, 33.791001], [132.710761, 33.790866], [132.710701, 33.790865], [132.71057, 33.790864], [132.710574, 33.790789], [132.710587, 33.790582], [132.710554, 33.790158], [132.710593, 33.78973], [132.710128, 33.789722], [132.710215, 33.789789], [132.710157, 33.790377], [132.710133, 33.79084], [132.710093, 33.791191], [132.709979, 33.791502], [132.709929, 33.791624], [132.7099, 33.791705], [132.709887, 33.791772], [132.709891, 33.791853], [132.709885, 33.791985], [132.709856, 33.792046], [132.709721, 33.792237], [132.709571, 33.792441], [132.709366, 33.79274], [132.709274, 33.792866], [132.7092, 33.792967], [132.709118, 33.793082], [132.709047, 33.793137], [132.708686, 33.793216], [132.708605, 33.793218], [132.708455, 33.793217], [132.708249, 33.793221], [132.708122, 33.793222], [132.708053, 33.793235], [132.707793, 33.793299], [132.707556, 33.793362], [132.707262, 33.793431], [132.707265, 33.793498], [132.707282, 33.7936], [132.7073, 33.793707], [132.707241, 33.793714], [132.707253, 33.793774], [132.707206, 33.793802], [132.707276, 33.793964], [132.707329, 33.79408], [132.707427, 33.79429], [132.707468, 33.794379], [132.707611, 33.794618], [132.707673, 33.79472], [132.707731, 33.794827], [132.707829, 33.794971], [132.707909, 33.795079], [132.707984, 33.795185], [132.708178, 33.795501], [132.708314, 33.795661], [132.708499, 33.795865], [132.708733, 33.796074], [132.708813, 33.796148], [132.709146, 33.79644], [132.709376, 33.796653], [132.709501, 33.796788], [132.709625, 33.796918], [132.709642, 33.796936], [132.709726, 33.79704], [132.709972, 33.797336], [132.710095, 33.797483], [132.710602, 33.798085], [132.71064, 33.798129], [132.710647, 33.798137], [132.710862, 33.798371], [132.711024, 33.798561], [132.711163, 33.798723], [132.71124, 33.79882], [132.711366, 33.799], [132.711366, 33.799], [132.712277, 33.799147], [132.71274, 33.798936], [132.713552, 33.799077], [132.713625, 33.799089], [132.713994, 33.799411], [132.714008, 33.799422], [132.714404, 33.799456], [132.714404, 33.799456], [132.71443, 33.798963], [132.714493, 33.798361], [132.714496, 33.798064], [132.714506, 33.797868], [132.714507, 33.79772], [132.714543, 33.797492], [132.714558, 33.797325], [132.714445, 33.797327], [132.714476, 33.796703], [132.714485, 33.796527], [132.716938, 33.796593], [132.71801, 33.796633], [132.71923, 33.796668]]]}}, {"type": "Feature", "properties": {"name": "北川原", "jinko": 1775, "setai": 691, "bus_stops": 4, "bus_boarding": 6.0, "demand": 9, "clat": 33.801516, "clng": 132.702313}, "geometry": {"type": "Polygon", "coordinates": [[[132.714587, 33.803052], [132.714415, 33.802992], [132.714246, 33.802924], [132.714241, 33.802525], [132.714238, 33.801521], [132.714281, 33.800359], [132.714334, 33.799893], [132.714401, 33.799517], [132.714404, 33.799456], [132.714404, 33.799456], [132.714008, 33.799422], [132.713994, 33.799411], [132.713625, 33.799089], [132.713552, 33.799077], [132.71274, 33.798936], [132.712277, 33.799147], [132.711366, 33.799], [132.711366, 33.799], [132.711401, 33.799049], [132.711467, 33.799144], [132.711537, 33.799244], [132.711397, 33.799181], [132.711111, 33.799065], [132.710866, 33.798951], [132.710491, 33.798772], [132.710336, 33.798705], [132.709768, 33.798466], [132.709352, 33.79828], [132.70894, 33.798093], [132.708002, 33.797752], [132.707239, 33.797509], [132.706483, 33.797262], [132.705397, 33.796871], [132.704874, 33.796733], [132.70451, 33.796647], [132.704183, 33.796588], [132.703803, 33.796536], [132.703641, 33.796527], [132.703446, 33.796515], [132.703371, 33.796512], [132.702773, 33.796484], [132.702229, 33.796458], [132.701684, 33.796439], [132.701293, 33.796422], [132.700905, 33.79641], [132.700365, 33.796386], [132.69964, 33.796367], [132.698785, 33.796337], [132.697913, 33.7963], [132.69722, 33.796277], [132.696701, 33.796257], [132.696162, 33.796225], [132.695844, 33.796186], [132.695496, 33.796124], [132.694622, 33.795905], [132.694133, 33.795782], [132.693626, 33.795667], [132.693013, 33.795517], [132.693013, 33.795517], [132.692407, 33.795462], [132.691832, 33.795539], [132.691802, 33.795538], [132.691655, 33.795529], [132.69151, 33.79552], [132.69138, 33.795512], [132.691277, 33.795505], [132.691201, 33.795501], [132.691147, 33.795499], [132.69111, 33.795499], [132.691083, 33.7955], [132.69106, 33.795502], [132.691039, 33.795506], [132.691024, 33.795514], [132.691014, 33.795527], [132.691012, 33.795542], [132.691017, 33.795558], [132.691026, 33.795571], [132.691037, 33.795581], [132.691051, 33.795587], [132.691074, 33.79559], [132.691113, 33.795592], [132.691174, 33.795596], [132.691751, 33.795621], [132.691778, 33.795686], [132.691803, 33.795752], [132.691821, 33.79582], [132.691831, 33.795889], [132.691835, 33.795959], [132.691833, 33.796027], [132.691826, 33.7961], [132.691811, 33.796183], [132.691789, 33.796273], [132.691765, 33.796359], [132.691742, 33.796431], [132.691722, 33.796505], [132.6917, 33.796602], [132.691678, 33.796722], [132.691648, 33.796853], [132.691609, 33.796983], [132.691563, 33.797128], [132.69151, 33.797306], [132.691456, 33.797505], [132.691412, 33.797681], [132.691379, 33.797799], [132.691358, 33.797872], [132.691325, 33.79798], [132.691311, 33.798028], [132.691308, 33.798039], [132.691302, 33.798038], [132.691287, 33.798036], [132.691282, 33.798055], [132.69128, 33.798066], [132.691298, 33.79807], [132.691297, 33.798078], [132.691289, 33.798113], [132.691284, 33.798135], [132.691276, 33.798167], [132.691264, 33.798203], [132.691246, 33.798252], [132.691221, 33.798324], [132.691189, 33.798419], [132.691154, 33.79852], [132.691119, 33.798617], [132.691088, 33.798707], [132.691063, 33.798777], [132.691061, 33.798784], [132.69104, 33.798849], [132.691023, 33.798905], [132.691009, 33.798953], [132.690998, 33.798992], [132.690989, 33.799019], [132.69098, 33.799036], [132.69097, 33.799044], [132.690955, 33.799046], [132.690937, 33.799044], [132.690915, 33.799041], [132.690889, 33.79904], [132.690866, 33.799043], [132.690847, 33.799052], [132.690836, 33.799066], [132.690836, 33.799081], [132.690844, 33.799093], [132.690857, 33.799105], [132.690869, 33.799114], [132.690873, 33.799121], [132.690872, 33.799131], [132.690865, 33.799158], [132.690845, 33.799225], [132.690814, 33.799325], [132.690794, 33.799403], [132.690776, 33.799469], [132.690758, 33.799527], [132.690736, 33.799581], [132.69071, 33.799636], [132.690682, 33.799693], [132.690656, 33.799749], [132.690634, 33.7998], [132.690616, 33.799839], [132.690596, 33.799882], [132.69059, 33.799895], [132.690582, 33.799901], [132.690573, 33.799902], [132.690555, 33.799897], [132.690539, 33.799891], [132.690511, 33.799883], [132.690493, 33.79988], [132.690471, 33.799885], [132.690463, 33.799891], [132.690454, 33.799909], [132.690456, 33.799932], [132.690467, 33.799957], [132.690477, 33.799982], [132.690478, 33.800004], [132.690471, 33.800032], [132.690459, 33.800074], [132.690444, 33.800132], [132.690425, 33.800207], [132.690401, 33.800292], [132.690358, 33.800423], [132.690353, 33.800466], [132.690331, 33.80054], [132.690315, 33.800595], [132.690305, 33.800628], [132.690296, 33.800648], [132.690239, 33.800729], [132.690205, 33.800716], [132.690066, 33.800672], [132.690058, 33.800682], [132.690053, 33.800694], [132.690048, 33.800708], [132.690046, 33.800725], [132.690051, 33.800741], [132.690062, 33.800755], [132.690074, 33.800768], [132.690078, 33.800775], [132.690076, 33.800789], [132.690065, 33.800812], [132.690049, 33.800853], [132.690032, 33.80091], [132.690015, 33.80098], [132.689994, 33.801053], [132.689975, 33.801125], [132.689956, 33.801197], [132.689937, 33.801265], [132.689916, 33.80133], [132.68989, 33.801388], [132.689861, 33.801437], [132.689847, 33.801455], [132.689819, 33.801475], [132.689797, 33.801489], [132.689788, 33.801498], [132.689783, 33.801509], [132.689778, 33.801542], [132.689782, 33.801581], [132.68979, 33.801624], [132.689802, 33.801672], [132.68981, 33.801728], [132.689814, 33.801766], [132.689814, 33.801795], [132.689811, 33.801838], [132.689805, 33.801874], [132.689783, 33.801964], [132.689751, 33.802055], [132.689719, 33.802137], [132.689689, 33.802205], [132.689663, 33.80226], [132.689638, 33.802316], [132.689636, 33.802334], [132.689639, 33.802352], [132.68965, 33.802366], [132.689675, 33.802394], [132.68969, 33.802418], [132.689701, 33.802451], [132.689707, 33.80249], [132.689711, 33.802533], [132.689711, 33.802579], [132.689709, 33.802623], [132.689701, 33.802668], [132.689682, 33.802717], [132.689652, 33.802768], [132.68962, 33.802821], [132.689589, 33.802873], [132.689562, 33.802926], [132.689543, 33.802979], [132.689532, 33.803033], [132.689151, 33.804947], [132.689684, 33.804949], [132.690061, 33.804933], [132.690584, 33.804955], [132.692306, 33.804982], [132.692962, 33.804992], [132.693637, 33.804998], [132.694761, 33.805008], [132.69656, 33.805023], [132.697893, 33.805064], [132.699042, 33.805113], [132.699142, 33.805115], [132.700646, 33.805146], [132.700781, 33.80515], [132.70082, 33.805151], [132.700855, 33.805152], [132.701296, 33.805149], [132.701686, 33.805178], [132.702233, 33.805198], [132.70281, 33.805217], [132.703163, 33.80524], [132.703548, 33.80527], [132.704157, 33.805348], [132.704584, 33.805402], [132.704786, 33.805436], [132.705067, 33.805483], [132.705632, 33.805617], [132.706221, 33.805793], [132.706232, 33.805796], [132.70674, 33.805946], [132.707496, 33.806175], [132.708196, 33.806419], [132.708427, 33.806517], [132.708666, 33.806613], [132.7092, 33.806847], [132.709488, 33.806967], [132.709993, 33.807176], [132.710393, 33.807325], [132.710744, 33.807421], [132.710832, 33.807443], [132.711101, 33.807507], [132.71193, 33.807665], [132.713278, 33.807905], [132.714858, 33.808119], [132.714858, 33.808119], [132.714781, 33.806921], [132.714742, 33.80601], [132.714698, 33.804829], [132.714587, 33.803052]]]}}]};
+
+// === 大字ポリゴン表示（国勢調査町丁・字等別境界データ2020） ===
+// 色分け = バス乗降件数（件/日）そのもの。青→緑→黄→橙→赤のグラデーション
+function ooazaColor(v) {
+  if (v >= 30) return '#0D47A1';   // 濃青
+  if (v >= 15) return '#1E88E5';   // 青
+  if (v >= 8)  return '#43A047';   // 緑
+  if (v >= 4)  return '#FDD835';   // 黄
+  if (v >= 2)  return '#FB8C00';   // 橙
+  if (v >= 0.5) return '#E53935';  // 赤
+  return '#BDBDBD';                // 灰（ほぼ0）
+}
+L.geoJSON(OOAZA_GEOJSON, {
+  style: f => {
+    const v = f.properties.bus_boarding;
+    return { color: ooazaColor(v), weight: 2, fillColor: ooazaColor(v), fillOpacity: 0.28 };
+  },
+  onEachFeature: (f, lyr) => {
+    const p = f.properties;
+    lyr.bindPopup(`<div class="popup-content"><b>大字${p.name}</b><br>人口 <b>${p.jinko.toLocaleString()}人</b>（${p.setai.toLocaleString()}世帯）<br>バス停 ${p.bus_stops}件／<b>バス乗降 ${p.bus_boarding}件/日</b><br>デマンドタクシー ${p.demand}人/月</div>`, {autoPan: false});
+    // ホバー時ツールチップ（人口データを含む）
+    lyr.bindTooltip(`<b>大字${p.name}</b><br>人口 ${p.jinko.toLocaleString()}人・${p.setai.toLocaleString()}世帯<br>バス乗降 ${p.bus_boarding}件/日・デマンド ${p.demand}人/月`, {
+      sticky: true, direction: 'top', className: 'ooaza-hover-tip', opacity: 0.95
+    });
+    // ホバー時にポリゴンを強調（mouseoutで元のスタイルに戻す）
+    lyr.on('mouseover', () => lyr.setStyle({ weight: 3.5, fillOpacity: 0.45 }));
+    lyr.on('mouseout', () => lyr.setStyle({ weight: 2, fillOpacity: 0.28 }));
+    // 大字名＋乗降件数ラベルを中心に表示
+    L.marker([p.clat, p.clng], {
+      icon: L.divIcon({
+        html: `<div style="text-align:center;line-height:1.2;"><div style="font-size:11px;font-weight:bold;color:#333;text-shadow:0 0 3px #fff,0 0 3px #fff;white-space:nowrap;">${p.name}</div><div style="font-size:13px;font-weight:bold;color:${ooazaColor(p.bus_boarding)};text-shadow:0 0 3px #fff,0 0 4px #fff;white-space:nowrap;">${p.bus_boarding}件/日</div></div>`,
+        iconSize: [0, 0], className: ''
+      }),
+      interactive: false, keyboard: false
+    }).addTo(ooazaLayer);
+  }
+}).addTo(ooazaLayer);
+
+// === デマンドタクシー乗降バブル（2026年6月実績・79件184人） ===
+// 乗車・降車・乗降合計を別レイヤーで表示
+const demandData = [
+  {name:'筒井', lat:33.7890, lng:132.7120, on:15, off:9},
+  {name:'神崎', lat:33.7830, lng:132.7300, on:13, off:3},
+  {name:'エミフル', lat:33.7904127, lng:132.7152259, on:4, off:8},
+  {name:'西古泉', lat:33.7880, lng:132.7180, on:5, off:5},
+  {name:'北川原', lat:33.8029252, lng:132.7141567, on:7, off:2},
+  {name:'こより(神崎)', lat:33.7828, lng:132.7300, on:4, off:4},
+  {name:'出作', lat:33.787829, lng:132.751666, on:3, off:5},
+  {name:'鶴吉', lat:33.7850, lng:132.7400, on:4, off:4},
+  {name:'北黒田', lat:33.7795, lng:132.7040, on:4, off:2},
+  {name:'昌農内', lat:33.80098, lng:132.72106, on:6, off:0},
+  {name:'浜(宮内ひふ科)', lat:33.789787, lng:132.702392, on:3, off:3},
+  {name:'中川原(エンゼル)', lat:33.7979968, lng:132.7549494, on:3, off:3},
+  {name:'大溝', lat:33.7786854, lng:132.7190051, on:2, off:3},
+  {name:'かまくら歯科(鶴吉)', lat:33.7865, lng:132.7430, on:2, off:3},
+  {name:'東古泉', lat:33.7864964, lng:132.7202030, on:0, off:5},
+  {name:'松前病院', lat:33.7911929, lng:132.7013945, on:1, off:4},
+  {name:'岡田駅', lat:33.7992340, lng:132.7240714, on:1, off:3},
+  {name:'松前町役場', lat:33.7871715, lng:132.7111995, on:1, off:3},
+  {name:'恵久美', lat:33.7900, lng:132.7260, on:1, off:2},
+  {name:'ますだ歯科(昌農内)', lat:33.8010, lng:132.7235, on:0, off:3},
+  {name:'兵頭ｸﾘﾆｯｸ(中川原)', lat:33.7965, lng:132.7500, on:0, off:3},
+  {name:'横田', lat:33.7790, lng:132.7290, on:3, off:0},
+  {name:'西高柳', lat:33.7980, lng:132.7290, on:3, off:0},
+  {name:'武智内科', lat:33.7960316, lng:132.7241636, on:0, off:3},
+  {name:'徳丸', lat:33.7891562, lng:132.7600075, on:2, off:0},
+  {name:'北伊予駅', lat:33.7874085, lng:132.7498605, on:2, off:0},
+  {name:'フジ松前店', lat:33.7926292, lng:132.7067192, on:0, off:2},
+  {name:'宮内皮膚科(浜)', lat:33.789787, lng:132.702392, on:1, off:3},
+  {name:'古泉駅', lat:33.7922658, lng:132.7169768, on:0, off:1},
+  {name:'地蔵町駅', lat:33.779515, lng:132.704163, on:0, off:1},
+  {name:'北伊予中学(推定)', lat:33.7920, lng:132.7450, on:1, off:0},
+  {name:'北伊予生協(推定)', lat:33.7875, lng:132.7495, on:1, off:0},
+  {name:'あかずきん(推定)', lat:33.7860, lng:132.7100, on:0, off:1},
+  {name:'おおにし接骨院(推定)', lat:33.7880, lng:132.7160, on:0, off:1},
+  {name:'ひまわり(推定)', lat:33.7870, lng:132.7130, on:0, off:1},
+  {name:'塩崎歯科(推定)', lat:33.7900, lng:132.7140, on:0, off:1},
+  {name:'盛次診療所(推定)', lat:33.7850, lng:132.7200, on:0, off:1},
+];
+function demandRadius(n) { return Math.max(8, 8 + n * 1.1); }
+function drawDemandBubble(d, value, color, dash, targetLayer, kindLabel) {
+  if (value <= 0) return;
+  const m = L.circleMarker([d.lat, d.lng], {
+    radius: demandRadius(value),
+    color: color, weight: 2.5, dashArray: dash,
+    fillColor: color, fillOpacity: 0.45
+  });
+  m.bindPopup(`<div class="popup-content"><b>${d.name}</b><br>デマンドタクシー 2026年6月<br>乗車 <b>${d.on}人</b> ／ 降車 <b>${d.off}人</b> ／ 合計 <b>${d.on+d.off}人</b></div>`, {autoPan: false});
+  m.bindTooltip(`${value}`, {
+    permanent: true, direction: 'center', offset: [0, 0],
+    className: 'demand-label', interactive: false
+  });
+  m.addTo(targetLayer);
+}
+demandData.forEach(d => {
+  drawDemandBubble(d, d.on,        '#1565C0', null,   demandOnLayer,  '乗車');   // 青=乗車
+  drawDemandBubble(d, d.off,       '#E65100', null,   demandOffLayer, '降車');   // 橙=降車
+  drawDemandBubble(d, d.on+d.off,  '#6A1B9A', '4,3',  demandAllLayer, '合計');   // 紫破線=合計
+});
+
+// --- 凡例 ---
+const legend = L.control({position: 'bottomright'});
+legend.onAdd = function() {
+  const div = L.DomUtil.create('div', 'legend');
+  div.innerHTML = `
+    <div style="font-weight:bold;color:#17406D;margin-bottom:8px;font-size:13px;border-bottom:1px solid #E5E5E5;padding-bottom:4px;">凡例</div>
+    <div style="font-weight:bold;font-size:11px;color:#666;margin-top:4px;margin-bottom:3px;">■ ルート（道路沿い）</div>
+    <div class="item"><div class="swatch" style="background:${NAVY};height:4px;"></div>東コース（現行）</div>
+    <div class="item"><div class="swatch" style="background:${LTBLUE};height:4px;border-top:1px dashed white;"></div>西コース（現行・破線）</div>
+    <div class="item"><div class="swatch" style="background:#B71C1C;height:4px;"></div>再編A東・効率型（ハイエース）</div>
+    <div class="item"><div class="swatch" style="background:#1B5E20;height:4px;"></div>再編A西・効率型（マイクロバス）</div>
+    <div class="item"><div class="swatch" style="background:#7B1FA2;height:4px;"></div>再編B東・網羅型（ハイエース）</div>
+    <div class="item"><div class="swatch" style="background:#EF6C00;height:4px;"></div>再編B西・網羅型（マイクロバス）</div>
+    <div class="item"><div class="swatch" style="background:#2E7D32;height:4px;border-top:1px dashed white;"></div><span style="color:#2E7D32;font-weight:bold;">町長希望ルート（破線）</span></div>
+    <div style="font-weight:bold;font-size:11px;color:#666;margin-top:8px;margin-bottom:3px;">■ 4分割再編（松前駅・エミフル結節）</div>
+    <div class="item"><div class="swatch" style="background:#C2185B;height:4px;"></div>東ルート（マイクロバス）</div>
+    <div class="item"><div class="swatch" style="background:#1565C0;height:4px;"></div>主要施設循環（マイクロバス）</div>
+    <div class="item"><div class="swatch" style="background:#00897B;height:4px;border-top:1px dashed white;"></div>主要施設＋元気人村（破線）</div>
+    <div class="item"><div class="swatch" style="background:#6A1B9A;height:4px;"></div>北ルート（ハイエース）</div>
+    <div class="item"><div class="swatch" style="background:#00838F;height:4px;"></div>南ルート（ハイエース）</div>
+    <div style="font-weight:bold;font-size:11px;color:#666;margin-top:8px;margin-bottom:3px;">⚠️ 道路幅診断（ver24追加）</div>
+    <div class="item"><div class="swatch" style="background:#FF6F00;height:4px;border-top:2px dashed white;"></div>要注意区間（推定3.0m）</div>
+    <div class="item"><div class="swatch" style="background:#B71C1C;height:4px;"></div>通行困難区間</div>
+    <div style="font-weight:bold;font-size:11px;color:#666;margin-top:8px;margin-bottom:3px;">■ 乗降客数バブル（1日平均）</div>
+    <div style="font-size:10px;line-height:1.7;">
+      <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#C62828;opacity:0.55;vertical-align:middle;"></span> 10件以上
+      <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#EF6C00;opacity:0.55;vertical-align:middle;margin-left:4px;"></span> 5〜
+      <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#F9A825;opacity:0.55;vertical-align:middle;margin-left:4px;"></span> 3〜
+      <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#9E9D24;opacity:0.55;vertical-align:middle;margin-left:4px;"></span> 2〜
+      <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#558B2F;opacity:0.55;vertical-align:middle;margin-left:4px;"></span> 〜2
+    </div>
+        <div style="font-weight:bold;font-size:11px;color:#666;margin-top:8px;margin-bottom:3px;">■ 大字ポリゴン（バス乗降件数/日）</div>
+    <div style="font-size:10px;line-height:1.8;">
+      <span style="display:inline-block;width:12px;height:12px;background:#0D47A1;opacity:0.5;vertical-align:middle;border-radius:2px;"></span> 30件以上<br>
+      <span style="display:inline-block;width:12px;height:12px;background:#1E88E5;opacity:0.5;vertical-align:middle;border-radius:2px;"></span> 15〜30件<br>
+      <span style="display:inline-block;width:12px;height:12px;background:#43A047;opacity:0.5;vertical-align:middle;border-radius:2px;"></span> 8〜15件<br>
+      <span style="display:inline-block;width:12px;height:12px;background:#FDD835;opacity:0.5;vertical-align:middle;border-radius:2px;"></span> 4〜8件<br>
+      <span style="display:inline-block;width:12px;height:12px;background:#FB8C00;opacity:0.5;vertical-align:middle;border-radius:2px;"></span> 2〜4件<br>
+      <span style="display:inline-block;width:12px;height:12px;background:#E53935;opacity:0.5;vertical-align:middle;border-radius:2px;"></span> 0.5〜2件<br>
+      <span style="display:inline-block;width:12px;height:12px;background:#BDBDBD;opacity:0.5;vertical-align:middle;border-radius:2px;"></span> 0.5件未満<br>
+      <span style="color:#999;font-size:9px;">出典：国勢調査町丁・字等別境界データ2020（CODH作成/e-Stat加工 CC BY 4.0）</span>
+    </div>
+    <div style="font-weight:bold;font-size:11px;color:#666;margin-top:8px;margin-bottom:3px;">■ デマンドタクシー（2026年6月実績）</div>
+    <div class="item"><div class="marker" style="background:#1565C0;opacity:0.45;width:12px;height:12px;"></div>乗車（青）</div>
+    <div class="item"><div class="marker" style="background:#E65100;opacity:0.45;width:12px;height:12px;"></div>降車（橙）</div>
+    <div class="item"><div class="marker" style="background:#6A1B9A;opacity:0.45;border:2px dashed #6A1B9A;width:12px;height:12px;"></div>乗降合計（紫破線）</div>
+    <div style="font-size:10px;color:#999;">79件・184人（うち70代以上76人=88%）</div>
+<div style="font-weight:bold;font-size:11px;color:#666;margin-top:8px;margin-bottom:3px;">■ バス停</div>
+    <div class="item"><div class="marker" style="background:${RED};width:10px;height:10px;"></div><span style="color:#D32F2F;font-weight:bold;">★ 新設候補</span></div>
+    <div class="item"><div class="marker" style="background:#2E7D32;width:10px;height:10px;"></div><span style="color:#2E7D32;font-weight:bold;">町長希望ルート候補</span></div>
+    <div class="item"><div class="marker" style="background:${NAVY};width:10px;height:10px;"></div>主要拠点</div>
+    <div class="item"><div class="marker" style="background:${GRAY};width:10px;height:10px;"></div>一般バス停</div>
+    <div style="font-weight:bold;font-size:11px;color:#666;margin-top:8px;margin-bottom:3px;">■ ラベル</div>
+    <div style="font-size:10px;line-height:1.7;">
+      <span class="stop-label-new" style="display:inline-block;">新設</span>
+      <span class="stop-label-key" style="display:inline-block;margin-left:4px;">主要</span>
+      <span class="stop-label" style="display:inline-block;margin-left:4px;">一般</span>
+    </div>
+    <div style="margin-top:8px;font-size:10px;color:#999;line-height:1.4;border-top:1px solid #E5E5E5;padding-top:6px;">
+      公式マップ座標データ<br>東28+西28停留所 (重複8含む)<br>クリック: 詳細情報（実測1日平均乗降数）
+    </div>
+  `;
+  return div;
+};
+legend.addTo(map);
+
+// --- レイヤー個別トグル ---
+function toggleLayer(btn) {
+  const key = btn.getAttribute('data-layer');
+  const layer = layerMap[key];
+  if (btn.classList.contains('active')) {
+    btn.classList.remove('active');
+    map.removeLayer(layer);
+  } else {
+    btn.classList.add('active');
+    map.addLayer(layer);
+  }
+}
+
+// --- プリセット切替 ---
+function preset(mode) {
+  // 全レイヤーキー（既定OFF）
+  const allOff = {'east': false, 'west': false, 'prop-east': false, 'prop-west': false,
+    'full-east': false, 'full-west': false, 'mayor': false,
+    'r4-east': false, 'r4-west': false, 'r4-north': false, 'r4-south': false, 'bubble': false, 'demand-on': false, 'demand-off': false, 'demand-all': false, 'ooaza': false, 'r4-west-genki': false};
+  const on = (...keys) => { const s = {...allOff}; keys.forEach(k => s[k] = true); return s; };
+  let state;
+  if (mode === 'current')        state = on('east', 'west');
+  else if (mode === 'proposed')  state = on('prop-east', 'prop-west');
+  else if (mode === 'proposed-east') state = on('prop-east');
+  else if (mode === 'proposed-west') state = on('prop-west');
+  else if (mode === 'hiace-mayor')   state = on('prop-east', 'mayor');
+  else if (mode === 'full')      state = on('full-east', 'full-west');
+  else if (mode === 'mayor')     state = on('mayor');
+  else if (mode === 'stops-only') state = on(); // ルート線すべてOFF
+  else if (mode === 'r4')        state = on('r4-east', 'r4-west', 'r4-north', 'r4-south');
+  else if (mode === 'r4-east')   state = on('r4-east');
+  else if (mode === 'r4-west')   state = on('r4-west');
+  else if (mode === 'r4-north')  state = on('r4-north');
+  else if (mode === 'r4-south')  state = on('r4-south');
+  else state = on('east', 'west', 'prop-east', 'prop-west', 'full-east', 'full-west', 'mayor', 'r4-east', 'r4-west', 'r4-north', 'r4-south'); // all
+  document.querySelectorAll('.toggle-btn[data-layer]').forEach(btn => {
+    const key = btn.getAttribute('data-layer');
+    const on = state[key];
+    if (on) {
+      btn.classList.add('active');
+      map.addLayer(layerMap[key]);
+    } else {
+      btn.classList.remove('active');
+      map.removeLayer(layerMap[key]);
+    }
+  });
+}
+
+// === 操作パネルの折り畳み（地図を最大化） ===
+function toggleControls() {
+  document.body.classList.toggle('ctrl-collapsed');
+  const collapsed = document.body.classList.contains('ctrl-collapsed');
+  document.getElementById('ctrl-collapse-icon').textContent = '▲';
+  document.getElementById('ctrl-collapse-text').textContent = collapsed ? '操作パネルをひらく' : '操作パネルをたたんで地図を広く表示';
+  document.getElementById('ctrl-collapse-chevron').textContent = collapsed ? '▼ ひらく' : '▲ たたむ';
+  // 高さ変化後にLeafletへリサイズ通知（地図の表示崩れ防止）
+  setTimeout(() => { if (typeof map !== 'undefined') map.invalidateSize(); }, 80);
+}
+
+// 初期状態: 現行のみ表示
+preset('current');
+</script>
+</body>
+</html>
